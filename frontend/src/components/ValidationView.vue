@@ -10,7 +10,7 @@
           class="badge"
           :class="confidenceBadgeClass"
         >
-          {{ Math.round((store.extraction.extraction_confidence ?? 0) * 100) }}% confidence
+          {{ Math.round((store.extraction?.extraction_confidence ?? 0) * 100) }}% confidence
         </span>
       </div>
       <div class="doc-preview">
@@ -27,9 +27,26 @@
 
     <!-- Right: Extraction form -->
     <section class="panel panel--form">
+      <!-- Page tabs (only shown when PDF had multiple pages) -->
+      <div v-if="store.totalPages > 1" class="page-tabs">
+        <button
+          v-for="(resp, idx) in store.allExtractions"
+          :key="idx"
+          class="page-tab"
+          :class="{ 'page-tab--active': store.currentPageIndex === idx }"
+          @click="switchPage(idx)"
+        >
+          <span class="page-tab__num">{{ idx + 1 }}</span>
+          <span class="page-tab__cntr">{{ resp.extraction.container_number ?? '—' }}</span>
+        </button>
+      </div>
+
       <div class="panel__header">
         <h2 class="panel__title">Extracted Fields</h2>
-        <span class="panel__subtitle">Review and correct before committing to Odoo</span>
+        <span v-if="store.totalPages > 1" class="panel__subtitle">
+          Page {{ store.currentPageIndex + 1 }} of {{ store.totalPages }}
+        </span>
+        <span v-else class="panel__subtitle">Review and correct before committing to Odoo</span>
       </div>
 
       <div v-if="store.warnings.length" class="alert alert-warning form-warnings">
@@ -42,166 +59,166 @@
       </div>
 
       <form class="extraction-form" @submit.prevent="onConfirm">
+
+        <!-- Row 1: Container + Gate info -->
         <fieldset class="form-group">
           <legend>Container</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Container Number</span>
+              <span>Container No.</span>
               <input v-model="form.container_number" type="text" placeholder="e.g. MSCU1234567" />
             </label>
             <label class="field">
-              <span>Seal Number</span>
-              <input v-model="form.seal_number" type="text" />
-            </label>
-            <label class="field">
-              <span>Size</span>
+              <span>Size / Type — Size</span>
               <select v-model="form.container_size">
                 <option value="">— Select —</option>
                 <option v-for="o in containerSizeOptions" :key="o" :value="o">{{ o }}</option>
               </select>
             </label>
             <label class="field">
-              <span>Type</span>
+              <span>Size / Type — Type</span>
               <select v-model="form.container_type">
                 <option value="">— Select —</option>
                 <option v-for="o in containerTypeOptions" :key="o" :value="o">{{ o }}</option>
               </select>
             </label>
             <label class="field">
-              <span>Condition</span>
-              <input v-model="form.condition" type="text" placeholder="e.g. CLEAN" />
+              <span>Seal No.</span>
+              <input v-model="form.seal_number" type="text" />
             </label>
           </div>
         </fieldset>
 
+        <!-- Row 2: EIR gate details -->
         <fieldset class="form-group">
-          <legend>Shipping References</legend>
+          <legend>Gate / EIR</legend>
+          <div class="field-grid">
+            <label class="field">
+              <span>EIR No.</span>
+              <input v-model="form.eir_number" type="text" />
+            </label>
+            <label class="field">
+              <span>In / Out</span>
+              <select v-model="form.in_out_direction">
+                <option value="">— Select —</option>
+                <option value="IN">IN</option>
+                <option value="OUT">OUT</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Designation</span>
+              <input v-model="form.designation" type="text" />
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Row 3: Shipping -->
+        <fieldset class="form-group">
+          <legend>Shipping</legend>
           <div class="field-grid">
             <label class="field">
               <span>Shipping Line</span>
               <input v-model="form.shipping_line" type="text" />
             </label>
             <label class="field">
-              <span>Vessel Name</span>
+              <span>Vessel / Voyage — Vessel</span>
               <input v-model="form.vessel_name" type="text" />
             </label>
             <label class="field">
-              <span>Voyage Number</span>
+              <span>Vessel / Voyage — Voyage</span>
               <input v-model="form.voyage_number" type="text" />
             </label>
             <label class="field">
-              <span>Bill of Lading</span>
-              <input v-model="form.bill_of_lading" type="text" />
-            </label>
-            <label class="field">
-              <span>Booking Number</span>
+              <span>Release Order / Booking</span>
               <input v-model="form.booking_number" type="text" />
             </label>
           </div>
         </fieldset>
 
-        <fieldset class="form-group">
-          <legend>Ports & Routing</legend>
-          <div class="field-grid">
-            <label class="field">
-              <span>Port of Loading</span>
-              <input v-model="form.port_of_loading" type="text" />
-            </label>
-            <label class="field">
-              <span>Port of Discharge</span>
-              <input v-model="form.port_of_discharge" type="text" />
-            </label>
-            <label class="field">
-              <span>Place of Receipt</span>
-              <input v-model="form.place_of_receipt" type="text" />
-            </label>
-          </div>
-        </fieldset>
-
+        <!-- Row 4: Weight -->
         <fieldset class="form-group">
           <legend>Weight</legend>
-          <div class="field-grid field-grid--3">
+          <div class="field-grid">
             <label class="field">
-              <span>Gross Weight</span>
+              <span>Weight</span>
               <div class="weight-input">
-                <input
-                  v-model.number="form.gross_weight_value"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                />
+                <input v-model.number="form.gross_weight_value" type="number" step="0.01" placeholder="0.00" />
                 <select v-model="form.gross_weight_unit">
                   <option>KG</option><option>LBS</option><option>MT</option>
                 </select>
               </div>
             </label>
-            <label class="field">
-              <span>Net Weight</span>
-              <div class="weight-input">
-                <input v-model.number="form.net_weight_value" type="number" step="0.01" placeholder="0.00" />
-                <select v-model="form.net_weight_unit">
-                  <option>KG</option><option>LBS</option><option>MT</option>
-                </select>
-              </div>
-            </label>
-            <label class="field">
-              <span>Tare Weight</span>
-              <div class="weight-input">
-                <input v-model.number="form.tare_weight_value" type="number" step="0.01" placeholder="0.00" />
-                <select v-model="form.tare_weight_unit">
-                  <option>KG</option><option>LBS</option><option>MT</option>
-                </select>
-              </div>
-            </label>
           </div>
         </fieldset>
 
+        <!-- Row 5: Dates -->
         <fieldset class="form-group">
           <legend>Dates</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Receipt Date</span>
+              <span>Date of Issue</span>
               <input v-model="form.receipt_date" type="date" />
             </label>
             <label class="field">
-              <span>Discharge Date</span>
+              <span>Date of Discharge</span>
               <input v-model="form.discharge_date" type="date" />
+            </label>
+            <label class="field">
+              <span>D.O Validity</span>
+              <input v-model="form.do_validity_date" type="date" />
             </label>
           </div>
         </fieldset>
 
+        <!-- Row 6: Documents -->
+        <fieldset class="form-group">
+          <legend>Documents</legend>
+          <div class="field-grid">
+            <label class="field">
+              <span>D.O. No.</span>
+              <input v-model="form.do_number" type="text" />
+            </label>
+            <label class="field">
+              <span>Bill of Entry No.</span>
+              <input v-model="form.bill_of_entry_number" type="text" />
+            </label>
+          </div>
+        </fieldset>
+
+        <!-- Row 7: Parties -->
         <fieldset class="form-group">
           <legend>Parties</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Shipper</span>
-              <input v-model="form.shipper" type="text" />
-            </label>
-            <label class="field">
-              <span>Consignee</span>
+              <span>Consignee / Shipper</span>
               <input v-model="form.consignee" type="text" />
             </label>
             <label class="field">
-              <span>Notify Party</span>
-              <input v-model="form.notify_party" type="text" />
+              <span>Agent</span>
+              <input v-model="form.agent" type="text" />
+            </label>
+            <label class="field">
+              <span>Haulier</span>
+              <input v-model="form.haulier" type="text" />
+            </label>
+            <label class="field">
+              <span>Vehicle No.</span>
+              <input v-model="form.vehicle_number" type="text" />
             </label>
           </div>
         </fieldset>
 
+        <!-- Row 8: Misc -->
         <fieldset class="form-group">
-          <legend>Cargo</legend>
+          <legend>Additional</legend>
           <div class="field-grid">
-            <label class="field">
-              <span>Commodity</span>
-              <input v-model="form.commodity" type="text" />
+            <label class="field field--full">
+              <span>Remarks</span>
+              <input v-model="form.remarks" type="text" />
             </label>
             <label class="field">
-              <span>Package Count</span>
-              <input v-model.number="form.package_count" type="number" min="0" />
-            </label>
-            <label class="field">
-              <span>Package Type</span>
-              <input v-model="form.package_type" type="text" />
+              <span>User Name</span>
+              <input v-model="form.user_name" type="text" />
             </label>
           </div>
         </fieldset>
@@ -233,6 +250,11 @@ const store = useExtractionStore()
 const router = useRouter()
 const { commit } = useCommit()
 
+function switchPage(index: number) {
+  store.goToPage(index)
+  populateForm()
+}
+
 const pdfCanvas = ref<HTMLCanvasElement | null>(null)
 const pdfLoading = ref(false)
 const dryRun = ref(false)
@@ -254,118 +276,136 @@ const confidenceBadgeClass = computed(() => {
   return 'badge--danger'
 })
 
-// Flat reactive form bound from store extraction
+// Flat reactive form — one field per EIR label
 const form = reactive({
+  // Container
   container_number: '',
-  seal_number: '',
   container_size: '' as ContainerSize | '',
   container_type: '' as ContainerType | '',
-  condition: '',
+  seal_number: '',
+  // Gate / EIR
+  eir_number: '',
+  in_out_direction: '',
+  designation: '',
+  // Shipping
   shipping_line: '',
   vessel_name: '',
   voyage_number: '',
-  bill_of_lading: '',
   booking_number: '',
-  port_of_loading: '',
-  port_of_discharge: '',
-  place_of_receipt: '',
+  // Weight
   gross_weight_value: null as number | null,
   gross_weight_unit: 'KG' as WeightUnit,
-  net_weight_value: null as number | null,
-  net_weight_unit: 'KG' as WeightUnit,
-  tare_weight_value: null as number | null,
-  tare_weight_unit: 'KG' as WeightUnit,
+  // Dates
   receipt_date: '',
   discharge_date: '',
-  shipper: '',
+  do_validity_date: '',
+  // Documents
+  do_number: '',
+  bill_of_entry_number: '',
+  // Parties
   consignee: '',
-  notify_party: '',
-  commodity: '',
-  package_count: null as number | null,
-  package_type: '',
+  agent: '',
+  haulier: '',
+  vehicle_number: '',
+  // Misc
+  remarks: '',
+  user_name: '',
 })
 
 function populateForm() {
   const e = store.extraction
   if (!e) return
+  // Container
   form.container_number = e.container_number ?? ''
-  form.seal_number = e.seal_number ?? ''
   form.container_size = (e.container_size as ContainerSize) ?? ''
   form.container_type = (e.container_type as ContainerType) ?? ''
-  form.condition = e.condition ?? ''
+  form.seal_number = e.seal_number ?? ''
+  // Gate / EIR
+  form.eir_number = e.eir_number ?? ''
+  form.in_out_direction = e.in_out_direction ?? ''
+  form.designation = e.designation ?? ''
+  // Shipping
   form.shipping_line = e.shipping_line ?? ''
   form.vessel_name = e.vessel_name ?? ''
   form.voyage_number = e.voyage_number ?? ''
-  form.bill_of_lading = e.bill_of_lading ?? ''
   form.booking_number = e.booking_number ?? ''
-  form.port_of_loading = e.port_of_loading ?? ''
-  form.port_of_discharge = e.port_of_discharge ?? ''
-  form.place_of_receipt = e.place_of_receipt ?? ''
+  // Weight
   form.gross_weight_value = e.gross_weight?.value ?? null
   form.gross_weight_unit = (e.gross_weight?.unit as WeightUnit) ?? 'KG'
-  form.net_weight_value = e.net_weight?.value ?? null
-  form.net_weight_unit = (e.net_weight?.unit as WeightUnit) ?? 'KG'
-  form.tare_weight_value = e.tare_weight?.value ?? null
-  form.tare_weight_unit = (e.tare_weight?.unit as WeightUnit) ?? 'KG'
+  // Dates
   form.receipt_date = e.receipt_date ?? ''
   form.discharge_date = e.discharge_date ?? ''
-  form.shipper = e.shipper ?? ''
+  form.do_validity_date = e.do_validity_date ?? ''
+  // Documents
+  form.do_number = e.do_number ?? ''
+  form.bill_of_entry_number = e.bill_of_entry_number ?? ''
+  // Parties
   form.consignee = e.consignee ?? ''
-  form.notify_party = e.notify_party ?? ''
-  form.commodity = e.commodity ?? ''
-  form.package_count = e.package_count ?? null
-  form.package_type = e.package_type ?? ''
+  form.agent = e.agent ?? ''
+  form.haulier = e.haulier ?? ''
+  form.vehicle_number = e.vehicle_number ?? ''
+  // Misc
+  form.remarks = e.remarks ?? ''
+  form.user_name = e.user_name ?? ''
 }
 
 function formToExtraction() {
   const e = store.extraction!
   return {
     ...e,
+    // Container
     container_number: form.container_number || null,
-    seal_number: form.seal_number || null,
     container_size: (form.container_size || null) as ContainerSize | null,
     container_type: (form.container_type || null) as ContainerType | null,
-    condition: form.condition || null,
+    seal_number: form.seal_number || null,
+    // Gate / EIR
+    eir_number: form.eir_number || null,
+    in_out_direction: form.in_out_direction || null,
+    designation: form.designation || null,
+    // Shipping
     shipping_line: form.shipping_line || null,
     vessel_name: form.vessel_name || null,
     voyage_number: form.voyage_number || null,
-    bill_of_lading: form.bill_of_lading || null,
     booking_number: form.booking_number || null,
-    port_of_loading: form.port_of_loading || null,
-    port_of_discharge: form.port_of_discharge || null,
-    place_of_receipt: form.place_of_receipt || null,
+    // Weight
     gross_weight: form.gross_weight_value != null
       ? { value: form.gross_weight_value, unit: form.gross_weight_unit }
       : null,
-    net_weight: form.net_weight_value != null
-      ? { value: form.net_weight_value, unit: form.net_weight_unit }
-      : null,
-    tare_weight: form.tare_weight_value != null
-      ? { value: form.tare_weight_value, unit: form.tare_weight_unit }
-      : null,
+    // Dates
     receipt_date: form.receipt_date || null,
     discharge_date: form.discharge_date || null,
-    shipper: form.shipper || null,
+    do_validity_date: form.do_validity_date || null,
+    // Documents
+    do_number: form.do_number || null,
+    bill_of_entry_number: form.bill_of_entry_number || null,
+    // Parties
     consignee: form.consignee || null,
-    notify_party: form.notify_party || null,
-    commodity: form.commodity || null,
-    package_count: form.package_count,
-    package_type: form.package_type || null,
+    agent: form.agent || null,
+    haulier: form.haulier || null,
+    vehicle_number: form.vehicle_number || null,
+    // Misc
+    remarks: form.remarks || null,
+    user_name: form.user_name || null,
   }
 }
 
 // Load PDF preview
-async function loadPdf() {
+// Cached pdfjs document so we don't re-fetch the PDF on every tab switch
+let pdfDocCache: import('pdfjs-dist').PDFDocumentProxy | null = null
+
+async function renderPdfPage(pageNum: number) {
   if (!store.fileUrl || isImage.value || !pdfCanvas.value) return
   pdfLoading.value = true
   try {
-    const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist')
-    GlobalWorkerOptions.workerSrc = new URL(
-      'pdfjs-dist/build/pdf.worker.min.mjs',
-      import.meta.url,
-    ).href
-    const pdf = await getDocument(store.fileUrl).promise
-    const page = await pdf.getPage(1)
+    if (!pdfDocCache) {
+      const { getDocument, GlobalWorkerOptions } = await import('pdfjs-dist')
+      GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).href
+      pdfDocCache = await getDocument(store.fileUrl).promise
+    }
+    const page = await pdfDocCache.getPage(pageNum)
     const viewport = page.getViewport({ scale: 1.5 })
     const canvas = pdfCanvas.value!
     canvas.width = viewport.width
@@ -379,15 +419,23 @@ async function loadPdf() {
 }
 
 onMounted(() => {
-  if (!store.extraction) {
+  if (!store.extraction || store.allExtractions.length === 0) {
     router.replace('/')
     return
   }
   populateForm()
-  if (!isImage.value) loadPdf()
+  if (!isImage.value) renderPdfPage(store.currentPageIndex + 1)
 })
 
 watch(() => store.extraction, populateForm, { deep: true })
+
+// Re-render the preview whenever the active tab changes
+watch(
+  () => store.currentPageIndex,
+  (idx) => {
+    if (!isImage.value) renderPdfPage(idx + 1)
+  },
+)
 
 async function onConfirm() {
   if (!store.extraction) return
@@ -535,6 +583,9 @@ function onCancel() {
 .field-grid--3 {
   grid-template-columns: 1fr 1fr 1fr;
 }
+.field--full {
+  grid-column: 1 / -1;
+}
 
 .field {
   display: flex;
@@ -603,5 +654,61 @@ function onCancel() {
 }
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Page navigation tabs */
+.page-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 10px 0;
+  background: var(--color-surface-secondary, #f5f5f5);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+.page-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 10px 6px;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.page-tab:hover {
+  background: var(--color-surface-secondary, #f0f0f0);
+  color: var(--color-text);
+}
+.page-tab--active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  font-weight: 600;
+  position: relative;
+}
+.page-tab--active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-surface);
+}
+.page-tab__num {
+  font-size: 10px;
+  opacity: 0.6;
+}
+.page-tab__cntr {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
 }
 </style>

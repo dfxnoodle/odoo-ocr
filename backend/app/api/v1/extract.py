@@ -1,13 +1,14 @@
+import json
 import mimetypes
-import uuid
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.core.config import ExtractionProvider, Settings, get_settings
 from app.core.logging import new_request_id
-from app.schemas.extraction import ExtractionResponse
+from app.schemas.extraction import ExtractionBatchResponse, ExtractionResponse
 from app.services.extractors.base import ExtractionError, get_extractor
 
 router = APIRouter()
@@ -19,11 +20,16 @@ ALLOWED_MIME_TYPES = {
 }
 
 
+def _sse(event_type: str, payload: dict) -> str:
+    """Format a single Server-Sent Event line."""
+    return f"data: {json.dumps({'type': event_type, **payload})}\n\n"
+
+
 @router.post(
     "/extract",
-    response_model=ExtractionResponse,
     tags=["extraction"],
-    summary="Extract EIR fields from an uploaded document",
+    summary="Extract EIR fields from an uploaded document — streams SSE progress events",
+    response_class=StreamingResponse,
 )
 async def extract_document(
     file: Annotated[UploadFile, File(description="PDF or image of the EIR document")],
@@ -32,11 +38,11 @@ async def extract_document(
         Form(description="Override the default extraction provider for this request"),
     ] = None,
     settings: Settings = Depends(get_settings),
-) -> ExtractionResponse:
+) -> StreamingResponse:
     request_id = new_request_id()
     log = logger.bind(request_id=request_id, filename=file.filename)
 
-    # Validate file type
+    # ── Validate before streaming ───────────────────────────────────────────
     mime = file.content_type or mimetypes.guess_type(file.filename or "")[0] or ""
     if mime not in ALLOWED_MIME_TYPES:
         raise HTTPException(
@@ -44,7 +50,6 @@ async def extract_document(
             detail=f"Unsupported file type '{mime}'. Allowed: {sorted(ALLOWED_MIME_TYPES)}",
         )
 
-    # Validate file size
     contents = await file.read()
     max_bytes = settings.extraction_max_file_size_mb * 1024 * 1024
     if len(contents) > max_bytes:
@@ -53,7 +58,6 @@ async def extract_document(
             detail=f"File exceeds {settings.extraction_max_file_size_mb} MB limit.",
         )
 
-    # Resolve provider
     provider_key = provider_override or settings.extraction_provider.value
     try:
         ExtractionProvider(provider_key)
@@ -64,26 +68,62 @@ async def extract_document(
         )
 
     extractor = get_extractor(provider_key)
+    filename = file.filename or "upload"
     log = log.bind(provider=extractor.provider_name)
-    log.info("Extraction request received", size_bytes=len(contents))
+    log.info("Extraction request received (SSE)", size_bytes=len(contents))
 
-    try:
-        extraction = await extractor.extract(contents, file.filename or "upload", mime)
-    except ExtractionError as exc:
-        log.error("Extraction failed", error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
+    # ── SSE generator ───────────────────────────────────────────────────────
+    async def event_stream():
+        extraction_responses: list[ExtractionResponse] = []
 
-    warnings: list[str] = []
-    if extraction.container_number is None:
-        warnings.append("Container number could not be extracted.")
+        try:
+            async for page_num, total_pages, extraction in extractor.extract_pages_stream(
+                contents, filename, mime
+            ):
+                warnings: list[str] = []
+                if extraction.container_number is None:
+                    warnings.append("Container number could not be extracted.")
 
-    return ExtractionResponse(
-        request_id=request_id,
-        filename=file.filename or "upload",
-        extraction=extraction,
-        warnings=warnings,
-        provider_used=extractor.provider_name,
+                resp = ExtractionResponse(
+                    request_id=request_id,
+                    filename=filename,
+                    extraction=extraction,
+                    warnings=warnings,
+                    provider_used=extractor.provider_name,
+                    page_number=page_num,
+                    total_pages=total_pages,
+                )
+                extraction_responses.append(resp)
+
+                # Emit a lightweight progress event (no full extraction data yet)
+                yield _sse("page_done", {
+                    "page": page_num,
+                    "total": total_pages,
+                    "container_number": extraction.container_number,
+                    "eir_number": extraction.eir_number,
+                })
+
+        except ExtractionError as exc:
+            log.error("Extraction failed mid-stream", error=str(exc))
+            yield _sse("error", {"detail": str(exc)})
+            return
+
+        # Emit the complete batch as the final event
+        batch = ExtractionBatchResponse(
+            request_id=request_id,
+            filename=filename,
+            provider_used=extractor.provider_name,
+            total_pages=len(extraction_responses),
+            extractions=extraction_responses,
+        )
+        log.info("SSE stream complete", total_pages=len(extraction_responses))
+        yield _sse("result", {"data": batch.model_dump(mode="json")})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
     )

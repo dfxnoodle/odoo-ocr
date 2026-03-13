@@ -9,6 +9,7 @@ Add a new provider by:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,11 +22,38 @@ class BaseExtractor(ABC):
     @abstractmethod
     async def extract(self, file_bytes: bytes, filename: str, mime_type: str) -> "EIRExtraction":
         """
-        Accepts raw file bytes and returns a validated EIRExtraction.
+        Extract from a single file (image or single-page PDF).
 
         Implementations are responsible for their own I/O and error handling.
         Any unrecoverable error should raise ExtractionError.
         """
+
+    async def extract_pages(
+        self, file_bytes: bytes, filename: str, mime_type: str
+    ) -> "list[EIRExtraction]":
+        """
+        Extract every page of a document as a separate EIRExtraction.
+
+        Default: delegates to extract() once (covers non-PDF and providers that
+        handle multi-page natively). Subclasses should override when they can
+        split a multi-page PDF into per-page extractions.
+        """
+        return [await self.extract(file_bytes, filename, mime_type)]
+
+    async def extract_pages_stream(
+        self, file_bytes: bytes, filename: str, mime_type: str
+    ) -> "AsyncGenerator[tuple[int, int, EIRExtraction], None]":
+        """
+        Async generator that yields (page_number_1based, total_pages, EIRExtraction)
+        as each page finishes extraction.
+
+        Default: calls extract_pages() in one shot then yields results sequentially.
+        Subclasses override this to emit results as soon as each page is ready.
+        """
+        results = await self.extract_pages(file_bytes, filename, mime_type)
+        total = len(results)
+        for i, result in enumerate(results):
+            yield i + 1, total, result
 
     @property
     @abstractmethod

@@ -51,56 +51,60 @@ class WeightEntry(BaseModel):
 
 
 class EIRExtraction(BaseModel):
-    """Structured output from the OCR/LLM extraction pipeline."""
+    """
+    Structured output matching exactly the fields printed on a Khorfakkan-style
+    Equipment Interchange Receipt (EIR).  Field names mirror the EIR label text.
+    """
 
-    # Container identification
-    container_number: str | None = Field(default=None, description="ISO 6346 container number, e.g. MSCU1234567")
-    seal_number: str | None = None
-    container_size: ContainerSize | None = None
-    container_type: ContainerType | None = None
-    condition: str | None = Field(default=None, description="Container condition on receipt, e.g. CLEAN, DAMAGED")
+    # ── Container ─────────────────────────────────────────────────────────────
+    container_number: str | None = Field(default=None, description="CONTAINER NO. — ISO 6346, e.g. MSCU1234567")
+    container_size: ContainerSize | None = Field(default=None, description="SIZE / TYPE — size portion: 20, 40, 45…")
+    container_type: ContainerType | None = Field(default=None, description="SIZE / TYPE — type portion: GP, HC, RF…")
+    seal_number: str | None = Field(default=None, description="SEAL NO.")
 
-    # Shipping references
-    shipping_line: str | None = None
-    vessel_name: str | None = None
-    voyage_number: str | None = None
-    bill_of_lading: str | None = None
-    booking_number: str | None = None
+    # ── Gate / EIR info ───────────────────────────────────────────────────────
+    eir_number: str | None = Field(default=None, description="EIR NO.")
+    in_out_direction: str | None = Field(default=None, description="IN/OUT — value is IN or OUT")
+    designation: str | None = Field(default=None, description="DESIGNATION — container designation / classification code")
 
-    # Ports / routing
-    port_of_loading: str | None = None
-    port_of_discharge: str | None = None
-    place_of_receipt: str | None = None
+    # ── Shipping ──────────────────────────────────────────────────────────────
+    shipping_line: str | None = Field(default=None, description="SHIPPING LINE")
+    vessel_name: str | None = Field(default=None, description="VESSEL/VOYAGE — vessel name portion")
+    voyage_number: str | None = Field(default=None, description="VESSEL/VOYAGE — voyage number portion")
+    booking_number: str | None = Field(default=None, description="RELEASE ORDER/BOOKING")
 
-    # Weight
-    gross_weight: WeightEntry | None = None
-    net_weight: WeightEntry | None = None
-    tare_weight: WeightEntry | None = None
+    # ── Weight ────────────────────────────────────────────────────────────────
+    gross_weight: WeightEntry | None = Field(default=None, description="WEIGHT — e.g. 24420 KG or 24420/VGM")
 
-    # Dates
-    receipt_date: date | None = None
-    discharge_date: date | None = None
+    # ── Dates ─────────────────────────────────────────────────────────────────
+    receipt_date: date | None = Field(default=None, description="DATE OF ISSUE")
+    discharge_date: date | None = Field(default=None, description="DATE OF DISCHARGE")
+    do_validity_date: date | None = Field(default=None, description="D.O VALIDITY")
 
-    # Parties
-    shipper: str | None = None
-    consignee: str | None = None
-    notify_party: str | None = None
+    # ── Documents ─────────────────────────────────────────────────────────────
+    do_number: str | None = Field(default=None, description="D.O. NO.")
+    bill_of_entry_number: str | None = Field(default=None, description="BILL OF ENTRY NO.")
 
-    # Commodity / cargo
-    commodity: str | None = None
-    package_count: int | None = None
-    package_type: str | None = None
+    # ── Parties ───────────────────────────────────────────────────────────────
+    consignee: str | None = Field(default=None, description="CONSIGNEE/SHIPPER")
+    agent: str | None = Field(default=None, description="AGENT")
+    haulier: str | None = Field(default=None, description="HAULIER")
+    vehicle_number: str | None = Field(default=None, description="VEHICLE NO.")
 
-    # Metadata from extraction
+    # ── Misc ──────────────────────────────────────────────────────────────────
+    remarks: str | None = Field(default=None, description="REMARKS")
+    user_name: str | None = Field(default=None, description="USER NAME — system-generated operator name")
+
+    # ── Extraction metadata ───────────────────────────────────────────────────
     extraction_confidence: float | None = Field(
         default=None, ge=0.0, le=1.0,
-        description="Overall confidence score from the extraction provider"
+        description="Overall confidence score from the extraction provider",
     )
     provider_raw: dict[str, Any] | None = Field(
-        default=None, description="Raw provider response for audit purposes"
+        default=None, description="Raw provider response for audit purposes",
     )
     language_hints: list[str] | None = Field(
-        default=None, description="Detected languages in document, e.g. ['en', 'ar']"
+        default=None, description="Detected languages in document, e.g. ['en', 'ar']",
     )
 
 
@@ -114,6 +118,17 @@ class ExtractionResponse(BaseModel):
     extraction: EIRExtraction
     warnings: list[str] = Field(default_factory=list)
     provider_used: str
+    page_number: int = Field(default=1, description="1-based page index within the original document")
+    total_pages: int = Field(default=1, description="Total pages extracted from the document")
+
+
+class ExtractionBatchResponse(BaseModel):
+    """Returned by the extract endpoint; always contains one item per document page."""
+    request_id: str
+    filename: str
+    provider_used: str
+    total_pages: int
+    extractions: list[ExtractionResponse] = Field(default_factory=list)
 
 
 class CommitRequest(BaseModel):

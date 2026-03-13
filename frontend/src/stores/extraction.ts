@@ -1,8 +1,20 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import type { EIRExtraction, ExtractionResponse, OdooCommitResult } from '@/types/extraction'
+import { ref, computed } from 'vue'
+import type {
+  EIRExtraction,
+  ExtractionBatchResponse,
+  ExtractionResponse,
+  OdooCommitResult,
+} from '@/types/extraction'
 
 export type UploadState = 'idle' | 'uploading' | 'extracting' | 'ready' | 'committing' | 'committed' | 'error'
+
+export interface PageProgressEntry {
+  page: number
+  total: number
+  container_number: string | null
+  eir_number: string | null
+}
 
 export const useExtractionStore = defineStore('extraction', () => {
   const state = ref<UploadState>('idle')
@@ -12,38 +24,78 @@ export const useExtractionStore = defineStore('extraction', () => {
   const file = ref<File | null>(null)
   const fileUrl = ref<string | null>(null)
 
-  // API response data
+  // Batch API response
   const requestId = ref<string | null>(null)
-  const extraction = ref<EIRExtraction | null>(null)
-  const warnings = ref<string[]>([])
   const providerUsed = ref<string | null>(null)
+  const allExtractions = ref<ExtractionResponse[]>([])
+  const currentPageIndex = ref(0)   // 0-based index into allExtractions
+
+  // Streaming progress (populated during extraction before the final result arrives)
+  const progressPages = ref<PageProgressEntry[]>([])
+  const progressTotal = ref(0)
 
   // Commit result
   const commitResult = ref<OdooCommitResult | null>(null)
 
+  // ── Derived helpers ─────────────────────────────────────────────────────────
+  const totalPages = computed(() => allExtractions.value.length)
+
+  const currentResponse = computed<ExtractionResponse | null>(
+    () => allExtractions.value[currentPageIndex.value] ?? null,
+  )
+
+  /** Current EIRExtraction (mutable via updateField) */
+  const extraction = computed<EIRExtraction | null>(
+    () => currentResponse.value?.extraction ?? null,
+  )
+
+  const warnings = computed<string[]>(
+    () => currentResponse.value?.warnings ?? [],
+  )
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
   function setFile(f: File) {
     if (fileUrl.value) URL.revokeObjectURL(fileUrl.value)
     file.value = f
     fileUrl.value = URL.createObjectURL(f)
     state.value = 'idle'
     error.value = null
-    extraction.value = null
+    allExtractions.value = []
+    currentPageIndex.value = 0
+    progressPages.value = []
+    progressTotal.value = 0
     commitResult.value = null
-    warnings.value = []
   }
 
-  function setExtractionResponse(response: ExtractionResponse) {
+  function addPageProgress(entry: PageProgressEntry) {
+    progressTotal.value = entry.total
+    progressPages.value.push(entry)
+  }
+
+  function setBatchResponse(response: ExtractionBatchResponse) {
     requestId.value = response.request_id
-    extraction.value = { ...response.extraction }
-    warnings.value = response.warnings
     providerUsed.value = response.provider_used
+    // Deep-copy each extraction so form edits don't alias API data
+    allExtractions.value = response.extractions.map((r) => ({
+      ...r,
+      extraction: { ...r.extraction },
+    }))
+    currentPageIndex.value = 0
+    progressPages.value = []
+    progressTotal.value = 0
     state.value = 'ready'
     error.value = null
   }
 
+  function goToPage(index: number) {
+    if (index >= 0 && index < allExtractions.value.length) {
+      currentPageIndex.value = index
+    }
+  }
+
   function updateField<K extends keyof EIRExtraction>(key: K, value: EIRExtraction[K]) {
-    if (!extraction.value) return
-    extraction.value[key] = value
+    const resp = allExtractions.value[currentPageIndex.value]
+    if (resp) resp.extraction[key] = value
   }
 
   function setCommitResult(result: OdooCommitResult) {
@@ -63,9 +115,11 @@ export const useExtractionStore = defineStore('extraction', () => {
     file.value = null
     fileUrl.value = null
     requestId.value = null
-    extraction.value = null
-    warnings.value = []
+    allExtractions.value = []
+    currentPageIndex.value = 0
     providerUsed.value = null
+    progressPages.value = []
+    progressTotal.value = 0
     commitResult.value = null
   }
 
@@ -75,12 +129,20 @@ export const useExtractionStore = defineStore('extraction', () => {
     file,
     fileUrl,
     requestId,
+    providerUsed,
+    allExtractions,
+    currentPageIndex,
+    totalPages,
+    currentResponse,
     extraction,
     warnings,
-    providerUsed,
     commitResult,
+    progressPages,
+    progressTotal,
     setFile,
-    setExtractionResponse,
+    setBatchResponse,
+    addPageProgress,
+    goToPage,
     updateField,
     setCommitResult,
     setError,

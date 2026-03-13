@@ -8,30 +8,38 @@ export interface WeightEntry {
 }
 
 export interface EIRExtraction {
+  // Container
   container_number: string | null
-  seal_number: string | null
   container_size: ContainerSize | null
   container_type: ContainerType | null
-  condition: string | null
+  seal_number: string | null
+  // Gate / EIR
+  eir_number: string | null
+  in_out_direction: string | null
+  designation: string | null
+  // Shipping
   shipping_line: string | null
   vessel_name: string | null
   voyage_number: string | null
-  bill_of_lading: string | null
   booking_number: string | null
-  port_of_loading: string | null
-  port_of_discharge: string | null
-  place_of_receipt: string | null
+  // Weight
   gross_weight: WeightEntry | null
-  net_weight: WeightEntry | null
-  tare_weight: WeightEntry | null
+  // Dates
   receipt_date: string | null
   discharge_date: string | null
-  shipper: string | null
+  do_validity_date: string | null
+  // Documents
+  do_number: string | null
+  bill_of_entry_number: string | null
+  // Parties
   consignee: string | null
-  notify_party: string | null
-  commodity: string | null
-  package_count: number | null
-  package_type: string | null
+  agent: string | null
+  haulier: string | null
+  vehicle_number: string | null
+  // Misc
+  remarks: string | null
+  user_name: string | null
+  // Metadata
   extraction_confidence: number | null
   language_hints: string[] | null
 }
@@ -42,6 +50,16 @@ export interface ExtractionResponse {
   extraction: EIRExtraction
   warnings: string[]
   provider_used: string
+  page_number: number
+  total_pages: number
+}
+
+export interface ExtractionBatchResponse {
+  request_id: string
+  filename: string
+  provider_used: string
+  total_pages: number
+  extractions: ExtractionResponse[]
 }
 
 export interface CommitRequest {

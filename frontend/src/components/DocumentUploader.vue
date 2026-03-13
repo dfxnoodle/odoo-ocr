@@ -23,19 +23,51 @@
       </button>
     </template>
 
-    <template v-else>
+    <template v-else-if="!isExtracting">
       <div class="uploader__preview">
         <span class="uploader__filename">{{ store.file?.name }}</span>
         <span class="uploader__size">{{ fileSizeLabel }}</span>
       </div>
       <div class="uploader__actions">
-        <button class="btn btn-primary" :disabled="isExtracting" @click="onExtract">
-          <span v-if="isExtracting" class="spinner" />
-          {{ isExtracting ? 'Extracting…' : 'Extract Data' }}
-        </button>
-        <button class="btn btn-secondary" :disabled="isExtracting" @click="onClear">
-          Change file
-        </button>
+        <button class="btn btn-primary" @click="onExtract">Extract Data</button>
+        <button class="btn btn-secondary" @click="onClear">Change file</button>
+      </div>
+    </template>
+
+    <!-- Extraction progress -->
+    <template v-else>
+      <div class="progress-block">
+        <p class="progress-block__label">
+          <span class="progress-block__status">Extracting document…</span>
+          <span v-if="store.progressTotal > 0" class="progress-block__count">
+            {{ store.progressPages.length }} / {{ store.progressTotal }}
+          </span>
+        </p>
+
+        <!-- Progress bar -->
+        <div class="progress-bar" role="progressbar"
+             :aria-valuenow="progressPercent"
+             aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar__fill" :style="{ width: progressPercent + '%' }" />
+        </div>
+
+        <!-- Per-page checklist -->
+        <ul v-if="store.progressTotal > 0" class="progress-list">
+          <!-- Completed pages -->
+          <li v-for="p in store.progressPages" :key="p.page" class="progress-list__item progress-list__item--done">
+            <span class="progress-list__icon">✓</span>
+            <span class="progress-list__page">Page {{ p.page }}</span>
+            <span class="progress-list__cntr">{{ p.container_number ?? 'unknown container' }}</span>
+            <span v-if="p.eir_number" class="progress-list__eir">EIR {{ p.eir_number }}</span>
+          </li>
+          <!-- Remaining pages (placeholders) -->
+          <li v-for="n in remainingPages" :key="'r' + n" class="progress-list__item progress-list__item--pending">
+            <span class="progress-list__icon progress-list__icon--spin">⟳</span>
+            <span class="progress-list__page">Page {{ store.progressPages.length + n }}</span>
+            <span class="progress-list__cntr">processing…</span>
+          </li>
+        </ul>
+        <p v-else class="progress-block__init">Preparing pages…</p>
       </div>
     </template>
 
@@ -62,6 +94,17 @@ const localError = ref<string | null>(null)
 
 const hasFile = computed(() => !!store.file)
 const isExtracting = computed(() => store.state === 'extracting')
+
+const progressPercent = computed(() => {
+  if (store.progressTotal === 0) return 5          // show a sliver while pages are being prepared
+  return Math.round((store.progressPages.length / store.progressTotal) * 100)
+})
+
+const remainingPages = computed(() => {
+  const remaining = store.progressTotal - store.progressPages.length
+  return remaining > 0 ? Array.from({ length: remaining }, (_, i) => i + 1) : []
+})
+
 const fileSizeLabel = computed(() => {
   const bytes = store.file?.size ?? 0
   return bytes > 1024 * 1024
@@ -174,15 +217,104 @@ function onClear() {
   width: 100%;
   max-width: 420px;
 }
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+
+/* ── Extraction progress ─────────────────────────────────────────────── */
+.progress-block {
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+.progress-block__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+.progress-block__status {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.progress-block__count {
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.progress-block__init {
+  font-size: 12px;
+  color: var(--color-text-subtle);
+  text-align: center;
+  margin: 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--color-border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress-bar__fill {
+  height: 100%;
+  background: var(--color-primary, #0052cc);
+  border-radius: 99px;
+  transition: width 0.4s ease;
+}
+
+.progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.progress-list__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+}
+.progress-list__item--done {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+  color: #237804;
+}
+.progress-list__item--pending {
+  background: var(--color-surface-secondary, #fafafa);
+  color: var(--color-text-subtle);
+}
+.progress-list__icon {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.progress-list__icon--spin {
+  display: inline-block;
+  animation: spin 1.2s linear infinite;
+}
+.progress-list__page {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.progress-list__cntr {
+  flex: 1;
+  font-family: monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-list__eir {
+  font-size: 11px;
+  color: var(--color-text-subtle);
+  flex-shrink: 0;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

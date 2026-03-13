@@ -6,7 +6,7 @@ export function useCommit() {
   const store = useExtractionStore()
 
   async function commit(odooModel = 'stock.picking', dryRun = false): Promise<OdooCommitResult> {
-    if (!store.requestId || !store.extraction) {
+    if (!store.requestId || !store.extraction || !store.currentResponse) {
       throw new Error('No extraction data to commit.')
     }
 
