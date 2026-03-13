@@ -9,6 +9,7 @@ class ExtractionProvider(str, Enum):
     vertex = "vertex"
     azure = "azure"
     paddle = "paddle"
+    paddle_vl = "paddle_vl"
 
 
 class Settings(BaseSettings):
@@ -31,6 +32,16 @@ class Settings(BaseSettings):
     google_cloud_project: str = ""               # Vertex AI project (optional)
     google_cloud_location: str = "global"        # Region or "global" for API key path
     vertex_model: str = "gemini-2.0-flash"       # Model name passed to generate_content
+
+    # PaddleOCR-VL (local subprocess bridge)
+    # Must point to a Python 3.9–3.13 interpreter with paddlepaddle + paddleocr[doc-parser]
+    paddle_vl_python: str = "python3"
+    # PaddlePaddle device string: "gpu" (default), "gpu:0", "gpu:1", "cpu"
+    paddle_vl_device: str = "gpu"
+    # Fraction of GPU memory to pre-allocate as a pool (FLAGS_fraction_of_gpu_memory_to_use).
+    # 0.0 = on-demand allocation — recommended for ≤8 GB cards (avoids OOM on inference casts).
+    # 0.85+ only if you have ≥12 GB VRAM and want lower per-call latency.
+    paddle_vl_gpu_mem_fraction: float = 0.0
 
     # Azure Document Intelligence
     azure_docintel_endpoint: str = ""

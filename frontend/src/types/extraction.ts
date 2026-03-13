@@ -1,3 +1,15 @@
+export interface ProviderInfo {
+  id: string
+  label: string
+  description: string
+  available: boolean
+  unavailable_reason: string | null
+}
+
+export interface ProvidersResponse {
+  providers: ProviderInfo[]
+}
+
 export type WeightUnit = 'KG' | 'MT'
 export type ContainerSize = '20' | '40' | '45' | '40HC' | '45HC' | 'OTHER'
 

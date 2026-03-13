@@ -87,5 +87,8 @@ def get_extractor(provider: str) -> BaseExtractor:
         case ExtractionProvider.paddle:
             from app.services.extractors.paddle_cpu import PaddleCpuExtractor
             return PaddleCpuExtractor()
+        case ExtractionProvider.paddle_vl:
+            from app.services.extractors.paddle_vl import PaddleVLExtractor
+            return PaddleVLExtractor()
         case _:
             raise ValueError(f"Unknown extraction provider: {provider!r}")

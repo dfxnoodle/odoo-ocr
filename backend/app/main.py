@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.v1 import extract, health, odoo
+from app.api.v1 import extract, health, odoo, providers
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -72,6 +72,7 @@ async def request_correlation(request: Request, call_next) -> Response:
 
 # API routes
 app.include_router(health.router, prefix="/api/v1")
+app.include_router(providers.router, prefix="/api/v1")
 app.include_router(extract.router, prefix="/api/v1")
 app.include_router(odoo.router, prefix="/api/v1")
 

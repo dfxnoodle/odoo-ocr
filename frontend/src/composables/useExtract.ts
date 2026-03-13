@@ -4,7 +4,7 @@ import type { ExtractionBatchResponse } from '@/types/extraction'
 export function useExtract() {
   const store = useExtractionStore()
 
-  async function extract(file: File, providerOverride?: string): Promise<void> {
+  async function extract(file: File): Promise<void> {
     store.state = 'extracting'
     store.error = null
     store.progressPages = []
@@ -12,7 +12,7 @@ export function useExtract() {
 
     const form = new FormData()
     form.append('file', file)
-    if (providerOverride) form.append('provider_override', providerOverride)
+    if (store.selectedProvider) form.append('provider_override', store.selectedProvider)
 
     let response: Response
     try {

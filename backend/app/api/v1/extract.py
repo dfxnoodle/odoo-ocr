@@ -64,7 +64,7 @@ async def extract_document(
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown provider '{provider_key}'. Valid: vertex, azure, paddle",
+            detail=f"Unknown provider '{provider_key}'. Valid: vertex, azure, paddle, paddle_vl",
         )
 
     extractor = get_extractor(provider_key)

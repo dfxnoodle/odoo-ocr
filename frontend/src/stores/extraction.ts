@@ -5,6 +5,7 @@ import type {
   ExtractionBatchResponse,
   ExtractionResponse,
   OdooCommitResult,
+  ProviderInfo,
 } from '@/types/extraction'
 
 export type UploadState = 'idle' | 'uploading' | 'extracting' | 'ready' | 'committing' | 'committed' | 'error'
@@ -18,6 +19,11 @@ export interface PageProgressEntry {
 export const useExtractionStore = defineStore('extraction', () => {
   const state = ref<UploadState>('idle')
   const error = ref<string | null>(null)
+
+  // Provider selection
+  const providers = ref<ProviderInfo[]>([])
+  const providersLoading = ref(false)
+  const selectedProvider = ref<string | null>(null)
 
   // Uploaded file metadata
   const file = ref<File | null>(null)
@@ -53,6 +59,31 @@ export const useExtractionStore = defineStore('extraction', () => {
   )
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+
+  async function loadProviders() {
+    if (providersLoading.value) return
+    providersLoading.value = true
+    try {
+      const res = await fetch('/api/v1/providers')
+      if (!res.ok) return
+      const data = await res.json()
+      providers.value = data.providers ?? []
+      // Auto-select first available provider if none chosen yet
+      if (!selectedProvider.value) {
+        const first = providers.value.find((p) => p.available)
+        if (first) selectedProvider.value = first.id
+      }
+    } catch {
+      // Non-fatal — selector stays hidden until providers load
+    } finally {
+      providersLoading.value = false
+    }
+  }
+
+  function setProvider(id: string) {
+    selectedProvider.value = id
+  }
+
   function setFile(f: File) {
     if (fileUrl.value) URL.revokeObjectURL(fileUrl.value)
     file.value = f
@@ -125,6 +156,9 @@ export const useExtractionStore = defineStore('extraction', () => {
   return {
     state,
     error,
+    providers,
+    providersLoading,
+    selectedProvider,
     file,
     fileUrl,
     requestId,
@@ -138,6 +172,8 @@ export const useExtractionStore = defineStore('extraction', () => {
     commitResult,
     progressPages,
     progressTotal,
+    loadProviders,
+    setProvider,
     setFile,
     setBatchResponse,
     addPageProgress,
