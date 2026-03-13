@@ -13,7 +13,7 @@ export default defineConfig({
     port: 5173,
     host: true,
     // Allow Cloudflared quick tunnel hostnames to reach the dev server.
-    allowedHosts: ['.trycloudflare.com'],
+    allowedHosts: ['odoo-ocr.cuhk.digital'],
     strictPort: true,
     // Critical for Cloudflare Tunnels to handle Hot Module Replacement
     hmr: {
