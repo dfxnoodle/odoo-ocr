@@ -61,7 +61,6 @@ export function useExtract() {
               page: event.page as number,
               total: event.total as number,
               container_number: (event.container_number as string | null) ?? null,
-              eir_number: (event.eir_number as string | null) ?? null,
             })
           } else if (event.type === 'result') {
             store.setBatchResponse(event.data as ExtractionBatchResponse)

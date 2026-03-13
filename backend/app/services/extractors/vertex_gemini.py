@@ -19,7 +19,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import get_settings
 from app.schemas.extraction import (
     ContainerSize,
-    ContainerType,
     EIRExtraction,
     WeightEntry,
     WeightUnit,
@@ -35,75 +34,54 @@ You are an expert document parser for Equipment Interchange Receipts (EIR) issue
 terminals such as Khorfakkan Container Terminal. The document may contain English and/or Arabic text,
 rotated labels, stamps, and handwritten annotations.
 
-Extract ONLY the fields listed below — do not invent or add any other fields.
-If a field is not present in the document, set it to null.
-Return ONLY a valid JSON object with no extra text and no markdown fences.
+Extract ONLY the 7 fields listed below. Do NOT extract any other fields.
+If a field is not present, set its value to null.
+Return ONLY a valid JSON object — no extra text, no markdown fences.
 
-=== FIELDS TO EXTRACT ===
+=== 7 FIELDS TO EXTRACT ===
 
-  "container_number"    — label "CONTAINER NO."  — ISO 6346: 4 letters + 7 digits, e.g. MSCU1234567
-  "container_size"      — label "SIZE / TYPE"     — size portion only: one of 20, 40, 45, 40HC, 45HC, OTHER
-  "container_type"      — label "SIZE / TYPE"     — type portion only: one of GP, HC, RF, OT, FR, TK, OTHER
-  "seal_number"         — label "SEAL NO."
-  "eir_number"          — label "EIR NO."
-  "in_out_direction"    — label "IN/OUT"          — value must be exactly "IN" or "OUT"
-  "designation"         — label "DESIGNATION"     — container designation / classification code
-  "shipping_line"       — label "SHIPPING LINE"
-  "vessel_name"         — label "VESSEL/VOYAGE"   — vessel name portion (word-based name, e.g. "MSC MAYA")
-  "voyage_number"       — label "VESSEL/VOYAGE"   — voyage number portion (alphanumeric code, e.g. "QC604B")
-  "booking_number"      — label "RELEASE ORDER /BOOKING"
-  "gross_weight"        — label "WEIGHT"          — numeric value and unit; if shown as "24420/VGM", value=24420, unit="KG"
-  "receipt_date"        — label "DATE OF ISSUE"   — ISO 8601 YYYY-MM-DD
-  "discharge_date"      — label "DATE OF DISCHARGE" — ISO 8601 YYYY-MM-DD
-  "do_validity_date"    — label "D.O VALIDITY"    — ISO 8601 YYYY-MM-DD
-  "do_number"           — label "D.O. NO."
-  "bill_of_entry_number"— label "BILL OF ENTRY NO."
-  "consignee"           — label "CONSIGNEE/SHIPPER" — full text of that field
-  "agent"               — label "AGENT"
-  "haulier"             — label "HAULIER"
-  "vehicle_number"      — label "VEHICLE NO."
-  "remarks"             — label "REMARKS"
-  "user_name"           — label "USER NAME" or "SYSTEM GENERATED USER NAME"
+  "container_number" — label "CONTAINER NO."
+                       ISO 6346 format: 4 letters + 7 digits, e.g. MSCU1234567
+
+  "seal_number"      — label "SEAL NO."
+
+  "container_size"   — label "SIZE / TYPE"
+                       Extract the size portion only: one of 20, 40, 45, 40HC, 45HC, OTHER
+                       (ignore the type suffix, e.g. from "20 GP" take only "20")
+
+  "vehicle_number"   — label "VEHICLE NO."
+                       Full truck/vehicle plate number
+
+  "haulier"          — label "HAULIER"
+                       Name of the haulier / trucking company
+
+  "receipt_date"     — label "DATE OF ISSUE"
+                       Include the time if visible. Output as ISO 8601: "YYYY-MM-DDTHH:MM:SS"
+                       If no time is present, use "YYYY-MM-DDT00:00:00"
+
+  "gross_weight"     — label "WEIGHT"
+                       Numeric value and unit. If shown as "24420/VGM", value=24420, unit="KG"
 
 === OUTPUT FORMAT ===
 
 {
-  "container_number":     "<string or null>",
-  "container_size":       "<20 | 40 | 45 | 40HC | 45HC | OTHER | null>",
-  "container_type":       "<GP | HC | RF | OT | FR | TK | OTHER | null>",
-  "seal_number":          "<string or null>",
-  "eir_number":           "<string or null>",
-  "in_out_direction":     "<IN | OUT | null>",
-  "designation":          "<string or null>",
-  "shipping_line":        "<string or null>",
-  "vessel_name":          "<string or null>",
-  "voyage_number":        "<string or null>",
-  "booking_number":       "<string or null>",
-  "gross_weight":         {"value": <number or null>, "unit": "<KG | LBS | MT | null>"},
-  "receipt_date":         "<YYYY-MM-DD or null>",
-  "discharge_date":       "<YYYY-MM-DD or null>",
-  "do_validity_date":     "<YYYY-MM-DD or null>",
-  "do_number":            "<string or null>",
-  "bill_of_entry_number": "<string or null>",
-  "consignee":            "<string or null>",
-  "agent":                "<string or null>",
-  "haulier":              "<string or null>",
-  "vehicle_number":       "<string or null>",
-  "remarks":              "<string or null>",
-  "user_name":            "<string or null>",
+  "container_number":      "<string or null>",
+  "seal_number":           "<string or null>",
+  "container_size":        "<20 | 40 | 45 | 40HC | 45HC | OTHER | null>",
+  "vehicle_number":        "<string or null>",
+  "haulier":               "<string or null>",
+  "receipt_date":          "<YYYY-MM-DDTHH:MM:SS or null>",
+  "gross_weight":          {"value": <number or null>, "unit": "<KG | MT | null>"},
   "extraction_confidence": <float 0.0–1.0>,
-  "language_hints":       ["<en | ar | ...>"]
+  "language_hints":        ["<en | ar | ...>"]
 }
 
 === RULES ===
 - Normalize Arabic-Indic numerals (٠١٢٣٤٥٦٧٨٩) to Western numerals.
-- Container number: 4 letters + 7 digits including the check digit (e.g. MSCU1234567).
-- All dates: convert DD-MM-YYYY or DD/MM/YYYY to ISO 8601 YYYY-MM-DD.
-- VESSEL/VOYAGE combined field: if the value is a single alphanumeric code (e.g. "MALXQC604B"),
-  put the full value in vessel_name and set voyage_number to null unless you can clearly separate them.
-- SIZE / TYPE combined field: "20 GP" → size="20", type="GP".
-- Read ALL text including rotated labels, header text, and stamps.
-- Do NOT extract any field not listed above.
+- Container number must be 4 letters + 7 digits (includes check digit).
+- DATE OF ISSUE format on document is typically DD-MM-YYYY HH:MM — convert to ISO 8601.
+- Read ALL text including rotated labels, stamps, and header text.
+- Output exactly 9 keys — do NOT add any extra keys.
 """.strip()
 
 
@@ -336,15 +314,18 @@ def _map_to_schema(data: dict) -> EIRExtraction:
         except ValueError:
             return None
 
-    from datetime import date as date_cls
+    from datetime import datetime as dt_cls
 
-    def parse_date(val) -> date_cls | None:
+    def parse_datetime(val) -> dt_cls | None:
         if not val or str(val).strip().lower() in {"null", "none", ""}:
             return None
-        try:
-            return date_cls.fromisoformat(str(val))
-        except ValueError:
-            return None
+        raw = str(val).strip()
+        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
+            try:
+                return dt_cls.strptime(raw, fmt)
+            except ValueError:
+                continue
+        return None
 
     langs = data.get("language_hints")
     if not isinstance(langs, list):
@@ -358,41 +339,14 @@ def _map_to_schema(data: dict) -> EIRExtraction:
     except (TypeError, ValueError):
         confidence = None
 
-    in_out_raw = _nullable_str(data.get("in_out_direction"))
-    in_out = in_out_raw.upper() if in_out_raw and in_out_raw.upper() in {"IN", "OUT"} else in_out_raw
-
     return EIRExtraction(
-        # Container
         container_number=_nullable_str(data.get("container_number")),
-        container_size=optional_enum(ContainerSize, data.get("container_size")),
-        container_type=optional_enum(ContainerType, data.get("container_type")),
         seal_number=_nullable_str(data.get("seal_number")),
-        # Gate / EIR
-        eir_number=_nullable_str(data.get("eir_number")),
-        in_out_direction=in_out,
-        designation=_nullable_str(data.get("designation")),
-        # Shipping
-        shipping_line=_nullable_str(data.get("shipping_line")),
-        vessel_name=_nullable_str(data.get("vessel_name")),
-        voyage_number=_nullable_str(data.get("voyage_number")),
-        booking_number=_nullable_str(data.get("booking_number")),
-        # Weight
-        gross_weight=_parse_weight(data.get("gross_weight")),
-        # Dates
-        receipt_date=parse_date(data.get("receipt_date")),
-        discharge_date=parse_date(data.get("discharge_date")),
-        do_validity_date=parse_date(data.get("do_validity_date")),
-        # Documents
-        do_number=_nullable_str(data.get("do_number")),
-        bill_of_entry_number=_nullable_str(data.get("bill_of_entry_number")),
-        # Parties
-        consignee=_nullable_str(data.get("consignee")),
-        agent=_nullable_str(data.get("agent")),
-        haulier=_nullable_str(data.get("haulier")),
+        container_size=optional_enum(ContainerSize, data.get("container_size")),
         vehicle_number=_nullable_str(data.get("vehicle_number")),
-        # Misc
-        remarks=_nullable_str(data.get("remarks")),
-        user_name=_nullable_str(data.get("user_name")),
+        haulier=_nullable_str(data.get("haulier")),
+        receipt_date=parse_datetime(data.get("receipt_date")),
+        gross_weight=_parse_weight(data.get("gross_weight")),
         extraction_confidence=confidence,
         language_hints=langs,
     )

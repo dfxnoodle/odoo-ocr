@@ -13,7 +13,6 @@ export interface PageProgressEntry {
   page: number
   total: number
   container_number: string | null
-  eir_number: string | null
 }
 
 export const useExtractionStore = defineStore('extraction', () => {

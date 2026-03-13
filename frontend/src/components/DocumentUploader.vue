@@ -58,7 +58,6 @@
             <span class="progress-list__icon">✓</span>
             <span class="progress-list__page">Page {{ p.page }}</span>
             <span class="progress-list__cntr">{{ p.container_number ?? 'unknown container' }}</span>
-            <span v-if="p.eir_number" class="progress-list__eir">EIR {{ p.eir_number }}</span>
           </li>
           <!-- Remaining pages (placeholders) -->
           <li v-for="n in remainingPages" :key="'r' + n" class="progress-list__item progress-list__item--pending">

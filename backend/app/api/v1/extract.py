@@ -100,7 +100,6 @@ async def extract_document(
                     "page": page_num,
                     "total": total_pages,
                     "container_number": extraction.container_number,
-                    "eir_number": extraction.eir_number,
                 })
 
         except ExtractionError as exc:

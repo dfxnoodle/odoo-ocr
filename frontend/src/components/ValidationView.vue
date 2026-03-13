@@ -12,6 +12,15 @@
         >
           {{ Math.round((store.extraction?.extraction_confidence ?? 0) * 100) }}% confidence
         </span>
+        <button class="rotate-btn" title="Rotate 90° clockwise" @click="rotateRight">
+          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 2v6h-6"/>
+            <path d="M21 8C19.6 5 16.9 3 13.5 3A9 9 0 0 0 4.5 12"/>
+            <path d="M3 22v-6h6"/>
+            <path d="M3 16c1.4 3 4.1 5 7.5 5A9 9 0 0 0 19.5 12"/>
+          </svg>
+        </button>
       </div>
       <div class="doc-preview">
         <img
@@ -19,8 +28,14 @@
           :src="store.fileUrl ?? ''"
           alt="Document preview"
           class="doc-preview__img"
+          :style="{ transform: `rotate(${rotation}deg)` }"
         />
-        <canvas v-else ref="pdfCanvas" class="doc-preview__canvas" />
+        <canvas
+          v-else
+          ref="pdfCanvas"
+          class="doc-preview__canvas"
+          :style="{ transform: `rotate(${rotation}deg)` }"
+        />
         <div v-if="pdfLoading" class="doc-preview__loading">Loading PDF…</div>
       </div>
     </section>
@@ -60,165 +75,62 @@
 
       <form class="extraction-form" @submit.prevent="onConfirm">
 
-        <!-- Row 1: Container + Gate info -->
         <fieldset class="form-group">
           <legend>Container</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Container No.</span>
+              <span>Container IN</span>
               <input v-model="form.container_number" type="text" placeholder="e.g. MSCU1234567" />
             </label>
             <label class="field">
-              <span>Size / Type — Size</span>
+              <span>Seal IN</span>
+              <input v-model="form.seal_number" type="text" />
+            </label>
+            <label class="field">
+              <span>ISO Size</span>
               <select v-model="form.container_size">
                 <option value="">— Select —</option>
                 <option v-for="o in containerSizeOptions" :key="o" :value="o">{{ o }}</option>
               </select>
             </label>
-            <label class="field">
-              <span>Size / Type — Type</span>
-              <select v-model="form.container_type">
-                <option value="">— Select —</option>
-                <option v-for="o in containerTypeOptions" :key="o" :value="o">{{ o }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Seal No.</span>
-              <input v-model="form.seal_number" type="text" />
-            </label>
           </div>
         </fieldset>
 
-        <!-- Row 2: EIR gate details -->
         <fieldset class="form-group">
-          <legend>Gate / EIR</legend>
+          <legend>Transport</legend>
           <div class="field-grid">
             <label class="field">
-              <span>EIR No.</span>
-              <input v-model="form.eir_number" type="text" />
+              <span>Truck Plate IN</span>
+              <input v-model="form.vehicle_number" type="text" />
             </label>
             <label class="field">
-              <span>In / Out</span>
-              <select v-model="form.in_out_direction">
-                <option value="">— Select —</option>
-                <option value="IN">IN</option>
-                <option value="OUT">OUT</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Designation</span>
-              <input v-model="form.designation" type="text" />
+              <span>Supplier (Haulier)</span>
+              <input v-model="form.haulier" type="text" />
             </label>
           </div>
         </fieldset>
 
-        <!-- Row 3: Shipping -->
         <fieldset class="form-group">
-          <legend>Shipping</legend>
+          <legend>Gate</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Shipping Line</span>
-              <input v-model="form.shipping_line" type="text" />
-            </label>
-            <label class="field">
-              <span>Vessel / Voyage — Vessel</span>
-              <input v-model="form.vessel_name" type="text" />
-            </label>
-            <label class="field">
-              <span>Vessel / Voyage — Voyage</span>
-              <input v-model="form.voyage_number" type="text" />
-            </label>
-            <label class="field">
-              <span>Release Order / Booking</span>
-              <input v-model="form.booking_number" type="text" />
+              <span>IN Time</span>
+              <input v-model="form.receipt_date" type="datetime-local" />
             </label>
           </div>
         </fieldset>
 
-        <!-- Row 4: Weight -->
         <fieldset class="form-group">
           <legend>Weight</legend>
           <div class="field-grid">
             <label class="field">
-              <span>Weight</span>
+              <span>Declared Weight</span>
               <div class="weight-input">
-                <input v-model.number="form.gross_weight_value" type="number" step="0.01" placeholder="0.00" />
+                <input v-model.number="form.gross_weight_value" type="number" step="0.001" placeholder="0.00" />
                 <select v-model="form.gross_weight_unit">
-                  <option>KG</option><option>LBS</option><option>MT</option>
+                  <option>KG</option><option>MT</option>
                 </select>
               </div>
-            </label>
-          </div>
-        </fieldset>
-
-        <!-- Row 5: Dates -->
-        <fieldset class="form-group">
-          <legend>Dates</legend>
-          <div class="field-grid">
-            <label class="field">
-              <span>Date of Issue</span>
-              <input v-model="form.receipt_date" type="date" />
-            </label>
-            <label class="field">
-              <span>Date of Discharge</span>
-              <input v-model="form.discharge_date" type="date" />
-            </label>
-            <label class="field">
-              <span>D.O Validity</span>
-              <input v-model="form.do_validity_date" type="date" />
-            </label>
-          </div>
-        </fieldset>
-
-        <!-- Row 6: Documents -->
-        <fieldset class="form-group">
-          <legend>Documents</legend>
-          <div class="field-grid">
-            <label class="field">
-              <span>D.O. No.</span>
-              <input v-model="form.do_number" type="text" />
-            </label>
-            <label class="field">
-              <span>Bill of Entry No.</span>
-              <input v-model="form.bill_of_entry_number" type="text" />
-            </label>
-          </div>
-        </fieldset>
-
-        <!-- Row 7: Parties -->
-        <fieldset class="form-group">
-          <legend>Parties</legend>
-          <div class="field-grid">
-            <label class="field">
-              <span>Consignee / Shipper</span>
-              <input v-model="form.consignee" type="text" />
-            </label>
-            <label class="field">
-              <span>Agent</span>
-              <input v-model="form.agent" type="text" />
-            </label>
-            <label class="field">
-              <span>Haulier</span>
-              <input v-model="form.haulier" type="text" />
-            </label>
-            <label class="field">
-              <span>Vehicle No.</span>
-              <input v-model="form.vehicle_number" type="text" />
-            </label>
-          </div>
-        </fieldset>
-
-        <!-- Row 8: Misc -->
-        <fieldset class="form-group">
-          <legend>Additional</legend>
-          <div class="field-grid">
-            <label class="field field--full">
-              <span>Remarks</span>
-              <input v-model="form.remarks" type="text" />
-            </label>
-            <label class="field">
-              <span>User Name</span>
-              <input v-model="form.user_name" type="text" />
             </label>
           </div>
         </fieldset>
@@ -244,7 +156,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useExtractionStore } from '@/stores/extraction'
 import { useCommit } from '@/composables/useCommit'
-import type { ContainerSize, ContainerType, WeightUnit } from '@/types/extraction'
+import type { ContainerSize, WeightUnit } from '@/types/extraction'
 
 const store = useExtractionStore()
 const router = useRouter()
@@ -253,11 +165,17 @@ const { commit } = useCommit()
 function switchPage(index: number) {
   store.goToPage(index)
   populateForm()
+  rotation.value = 0
 }
 
 const pdfCanvas = ref<HTMLCanvasElement | null>(null)
 const pdfLoading = ref(false)
 const dryRun = ref(false)
+const rotation = ref(0)   // degrees: 0 | 90 | 180 | 270
+
+function rotateRight() {
+  rotation.value = (rotation.value + 90) % 360
+}
 
 const isImage = computed(() => {
   const mime = store.file?.type ?? ''
@@ -267,7 +185,6 @@ const isImage = computed(() => {
 const isCommitting = computed(() => store.state === 'committing')
 
 const containerSizeOptions: ContainerSize[] = ['20', '40', '45', '40HC', '45HC', 'OTHER']
-const containerTypeOptions: ContainerType[] = ['GP', 'HC', 'RF', 'OT', 'FR', 'TK', 'OTHER']
 
 const confidenceBadgeClass = computed(() => {
   const c = store.extraction?.extraction_confidence ?? 0
@@ -276,116 +193,45 @@ const confidenceBadgeClass = computed(() => {
   return 'badge--danger'
 })
 
-// Flat reactive form — one field per EIR label
+// Flat reactive form — one field per Gate-IN required field
 const form = reactive({
-  // Container
   container_number: '',
-  container_size: '' as ContainerSize | '',
-  container_type: '' as ContainerType | '',
   seal_number: '',
-  // Gate / EIR
-  eir_number: '',
-  in_out_direction: '',
-  designation: '',
-  // Shipping
-  shipping_line: '',
-  vessel_name: '',
-  voyage_number: '',
-  booking_number: '',
-  // Weight
+  container_size: '' as ContainerSize | '',
+  vehicle_number: '',
+  haulier: '',
+  receipt_date: '',          // datetime-local string: "YYYY-MM-DDTHH:MM"
   gross_weight_value: null as number | null,
   gross_weight_unit: 'KG' as WeightUnit,
-  // Dates
-  receipt_date: '',
-  discharge_date: '',
-  do_validity_date: '',
-  // Documents
-  do_number: '',
-  bill_of_entry_number: '',
-  // Parties
-  consignee: '',
-  agent: '',
-  haulier: '',
-  vehicle_number: '',
-  // Misc
-  remarks: '',
-  user_name: '',
 })
 
 function populateForm() {
   const e = store.extraction
   if (!e) return
-  // Container
   form.container_number = e.container_number ?? ''
-  form.container_size = (e.container_size as ContainerSize) ?? ''
-  form.container_type = (e.container_type as ContainerType) ?? ''
   form.seal_number = e.seal_number ?? ''
-  // Gate / EIR
-  form.eir_number = e.eir_number ?? ''
-  form.in_out_direction = e.in_out_direction ?? ''
-  form.designation = e.designation ?? ''
-  // Shipping
-  form.shipping_line = e.shipping_line ?? ''
-  form.vessel_name = e.vessel_name ?? ''
-  form.voyage_number = e.voyage_number ?? ''
-  form.booking_number = e.booking_number ?? ''
-  // Weight
+  form.container_size = (e.container_size as ContainerSize) ?? ''
+  form.vehicle_number = e.vehicle_number ?? ''
+  form.haulier = e.haulier ?? ''
+  // Convert ISO datetime "2026-03-12T03:21:00" → "2026-03-12T03:21" for datetime-local input
+  form.receipt_date = e.receipt_date ? e.receipt_date.slice(0, 16) : ''
   form.gross_weight_value = e.gross_weight?.value ?? null
   form.gross_weight_unit = (e.gross_weight?.unit as WeightUnit) ?? 'KG'
-  // Dates
-  form.receipt_date = e.receipt_date ?? ''
-  form.discharge_date = e.discharge_date ?? ''
-  form.do_validity_date = e.do_validity_date ?? ''
-  // Documents
-  form.do_number = e.do_number ?? ''
-  form.bill_of_entry_number = e.bill_of_entry_number ?? ''
-  // Parties
-  form.consignee = e.consignee ?? ''
-  form.agent = e.agent ?? ''
-  form.haulier = e.haulier ?? ''
-  form.vehicle_number = e.vehicle_number ?? ''
-  // Misc
-  form.remarks = e.remarks ?? ''
-  form.user_name = e.user_name ?? ''
 }
 
 function formToExtraction() {
   const e = store.extraction!
   return {
     ...e,
-    // Container
     container_number: form.container_number || null,
-    container_size: (form.container_size || null) as ContainerSize | null,
-    container_type: (form.container_type || null) as ContainerType | null,
     seal_number: form.seal_number || null,
-    // Gate / EIR
-    eir_number: form.eir_number || null,
-    in_out_direction: form.in_out_direction || null,
-    designation: form.designation || null,
-    // Shipping
-    shipping_line: form.shipping_line || null,
-    vessel_name: form.vessel_name || null,
-    voyage_number: form.voyage_number || null,
-    booking_number: form.booking_number || null,
-    // Weight
+    container_size: (form.container_size || null) as ContainerSize | null,
+    vehicle_number: form.vehicle_number || null,
+    haulier: form.haulier || null,
+    receipt_date: form.receipt_date ? `${form.receipt_date}:00` : null,  // append seconds for ISO 8601
     gross_weight: form.gross_weight_value != null
       ? { value: form.gross_weight_value, unit: form.gross_weight_unit }
       : null,
-    // Dates
-    receipt_date: form.receipt_date || null,
-    discharge_date: form.discharge_date || null,
-    do_validity_date: form.do_validity_date || null,
-    // Documents
-    do_number: form.do_number || null,
-    bill_of_entry_number: form.bill_of_entry_number || null,
-    // Parties
-    consignee: form.consignee || null,
-    agent: form.agent || null,
-    haulier: form.haulier || null,
-    vehicle_number: form.vehicle_number || null,
-    // Misc
-    remarks: form.remarks || null,
-    user_name: form.user_name || null,
   }
 }
 
@@ -521,9 +367,9 @@ function onCancel() {
   overflow: auto;
   position: relative;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 12px;
+  padding: 24px;
   background: #f0f0f0;
 }
 .doc-preview__img,
@@ -531,6 +377,8 @@ function onCancel() {
   max-width: 100%;
   border-radius: 4px;
   box-shadow: var(--shadow-md);
+  transition: transform 0.25s ease;
+  transform-origin: center center;
 }
 .doc-preview__loading {
   position: absolute;
@@ -539,6 +387,28 @@ function onCancel() {
   align-items: center;
   justify-content: center;
   color: var(--color-text-subtle);
+}
+
+/* Rotate button */
+.rotate-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text-subtle);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rotate-btn:hover {
+  background: var(--color-surface-secondary, #f0f0f0);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 /* Form */

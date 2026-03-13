@@ -7,7 +7,7 @@ The human validation step in the UI is the authoritative correction gate.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -29,22 +29,6 @@ class ContainerSize(str, Enum):
     other = "OTHER"
 
 
-class ContainerType(str, Enum):
-    gp = "GP"
-    hc = "HC"
-    reefer = "RF"
-    open_top = "OT"
-    flat_rack = "FR"
-    tank = "TK"
-    other = "OTHER"
-
-
-class FieldConfidence(BaseModel):
-    value: str | float | None = None
-    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    raw_text: str | None = None
-
-
 class WeightEntry(BaseModel):
     value: float | None = None
     unit: WeightUnit | None = None
@@ -52,48 +36,27 @@ class WeightEntry(BaseModel):
 
 class EIRExtraction(BaseModel):
     """
-    Structured output matching exactly the fields printed on a Khorfakkan-style
-    Equipment Interchange Receipt (EIR).  Field names mirror the EIR label text.
+    Fields extracted from an EIR, scoped to exactly what the Odoo Gate-IN
+    record requires.
     """
 
     # ── Container ─────────────────────────────────────────────────────────────
     container_number: str | None = Field(default=None, description="CONTAINER NO. — ISO 6346, e.g. MSCU1234567")
-    container_size: ContainerSize | None = Field(default=None, description="SIZE / TYPE — size portion: 20, 40, 45…")
-    container_type: ContainerType | None = Field(default=None, description="SIZE / TYPE — type portion: GP, HC, RF…")
     seal_number: str | None = Field(default=None, description="SEAL NO.")
+    container_size: ContainerSize | None = Field(default=None, description="SIZE / TYPE — size portion: 20, 40, 45…")
 
-    # ── Gate / EIR info ───────────────────────────────────────────────────────
-    eir_number: str | None = Field(default=None, description="EIR NO.")
-    in_out_direction: str | None = Field(default=None, description="IN/OUT — value is IN or OUT")
-    designation: str | None = Field(default=None, description="DESIGNATION — container designation / classification code")
+    # ── Transport ─────────────────────────────────────────────────────────────
+    vehicle_number: str | None = Field(default=None, description="VEHICLE NO. — truck plate")
+    haulier: str | None = Field(default=None, description="HAULIER — maps to Supplier in Odoo Gate-IN")
 
-    # ── Shipping ──────────────────────────────────────────────────────────────
-    shipping_line: str | None = Field(default=None, description="SHIPPING LINE")
-    vessel_name: str | None = Field(default=None, description="VESSEL/VOYAGE — vessel name portion")
-    voyage_number: str | None = Field(default=None, description="VESSEL/VOYAGE — voyage number portion")
-    booking_number: str | None = Field(default=None, description="RELEASE ORDER/BOOKING")
+    # ── Gate timestamp ────────────────────────────────────────────────────────
+    receipt_date: datetime | None = Field(
+        default=None,
+        description="DATE OF ISSUE — full datetime including time component, e.g. 2026-03-12T03:21:00",
+    )
 
     # ── Weight ────────────────────────────────────────────────────────────────
-    gross_weight: WeightEntry | None = Field(default=None, description="WEIGHT — e.g. 24420 KG or 24420/VGM")
-
-    # ── Dates ─────────────────────────────────────────────────────────────────
-    receipt_date: date | None = Field(default=None, description="DATE OF ISSUE")
-    discharge_date: date | None = Field(default=None, description="DATE OF DISCHARGE")
-    do_validity_date: date | None = Field(default=None, description="D.O VALIDITY")
-
-    # ── Documents ─────────────────────────────────────────────────────────────
-    do_number: str | None = Field(default=None, description="D.O. NO.")
-    bill_of_entry_number: str | None = Field(default=None, description="BILL OF ENTRY NO.")
-
-    # ── Parties ───────────────────────────────────────────────────────────────
-    consignee: str | None = Field(default=None, description="CONSIGNEE/SHIPPER")
-    agent: str | None = Field(default=None, description="AGENT")
-    haulier: str | None = Field(default=None, description="HAULIER")
-    vehicle_number: str | None = Field(default=None, description="VEHICLE NO.")
-
-    # ── Misc ──────────────────────────────────────────────────────────────────
-    remarks: str | None = Field(default=None, description="REMARKS")
-    user_name: str | None = Field(default=None, description="USER NAME — system-generated operator name")
+    gross_weight: WeightEntry | None = Field(default=None, description="WEIGHT — value and unit (KG or MT)")
 
     # ── Extraction metadata ───────────────────────────────────────────────────
     extraction_confidence: float | None = Field(
