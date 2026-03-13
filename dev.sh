@@ -102,6 +102,7 @@ start_backend() {
     cp "$ROOT/.env.example" "$ENV_FILE"
   fi
 
+  free_port 8000
   log "Starting FastAPI backend on ${BOLD}http://localhost:8000${RESET}"
   log "  API docs  → ${BOLD}http://localhost:8000/api/docs${RESET}"
 
@@ -127,11 +128,25 @@ start_frontend() {
     (cd "$FRONTEND" && npm install --silent)
   fi
 
+  free_port 5173
   log "Starting Vite dev server on ${BOLD}http://localhost:5173${RESET}"
   log "  API proxy → http://localhost:8000"
 
   cd "$FRONTEND"
   exec npm run dev
+}
+
+# ── Port helpers ──────────────────────────────────────────────────────────────
+free_port() {
+  local port=$1
+  local pid
+  pid=$(lsof -ti tcp:"$port" 2>/dev/null || true)
+  if [[ -n "$pid" ]]; then
+    warn "Port $port is in use by PID $pid – killing stale process…"
+    kill -9 $pid 2>/dev/null || true
+    sleep 0.3
+    ok "Port $port is now free"
+  fi
 }
 
 # ── Both (default) ────────────────────────────────────────────────────────────
@@ -150,6 +165,10 @@ start_both() {
     warn "→ Edit $ENV_FILE with your credentials."
     cp "$ROOT/.env.example" "$ENV_FILE"
   fi
+
+  # Clear stale processes so we never hit "Address already in use"
+  free_port 8000
+  free_port 5173
 
   # Kill both child process groups cleanly on Ctrl-C
   trap 'echo ""; log "Stopping…"; kill 0 2>/dev/null; wait 2>/dev/null' INT TERM
