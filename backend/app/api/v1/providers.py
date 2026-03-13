@@ -49,9 +49,10 @@ class ProvidersResponse(BaseModel):
 async def list_providers() -> ProvidersResponse:
     """Return all providers with their current availability status."""
     global _cache, _cache_ts
-    if _cache is None or time.monotonic() - _cache_ts > _CACHE_TTL:
+    now = time.monotonic()
+    if _cache is None or now - _cache_ts > _CACHE_TTL:
         _cache = await _build_provider_list()
-        _cache_ts = time.monotonic()
+        _cache_ts = now
     return ProvidersResponse(providers=_cache)
 
 
@@ -98,9 +99,18 @@ async def _build_provider_list() -> list[ProviderStatus]:
 
 
 def _check_vertex(settings) -> tuple[bool, str | None]:
-    if settings.google_api_key or settings.google_cloud_project:
+    if (
+        settings.google_api_key
+        or settings.google_cloud_project
+        or settings.google_cloud_projects
+        or settings.google_ai_api_keys
+    ):
         return True, None
-    return False, "Set GOOGLE_API_KEY (Google AI) or GOOGLE_CLOUD_PROJECT (Vertex AI) in .env"
+    return (
+        False,
+        "Set GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_PROJECTS (Vertex AI) "
+        "or GOOGLE_API_KEY / GOOGLE_AI_API_KEYS (Google AI API) in .env",
+    )
 
 
 def _check_azure(settings) -> tuple[bool, str | None]:

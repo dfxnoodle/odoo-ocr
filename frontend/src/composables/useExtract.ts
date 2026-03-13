@@ -62,6 +62,12 @@ export function useExtract() {
               total: event.total as number,
               container_number: (event.container_number as string | null) ?? null,
             })
+          } else if (event.type === 'page_retrying') {
+            store.setRetryingPage({
+              label: (event.label as string) ?? '',
+              attempt: (event.attempt as number) ?? 1,
+              switchingProject: (event.switching_project as boolean) ?? false,
+            })
           } else if (event.type === 'result') {
             store.setBatchResponse(event.data as ExtractionBatchResponse)
           } else if (event.type === 'error') {

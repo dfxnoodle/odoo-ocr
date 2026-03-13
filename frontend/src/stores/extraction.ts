@@ -16,6 +16,12 @@ export interface PageProgressEntry {
   container_number: string | null
 }
 
+export interface RetryingPageInfo {
+  label: string
+  attempt: number
+  switchingProject: boolean
+}
+
 export const useExtractionStore = defineStore('extraction', () => {
   const state = ref<UploadState>('idle')
   const error = ref<string | null>(null)
@@ -38,6 +44,9 @@ export const useExtractionStore = defineStore('extraction', () => {
   // Streaming progress (populated during extraction before the final result arrives)
   const progressPages = ref<PageProgressEntry[]>([])
   const progressTotal = ref(0)
+
+  // Set while a page is being retried after a rate-limit (429) error
+  const retryingPage = ref<RetryingPageInfo | null>(null)
 
   // Commit result
   const commitResult = ref<OdooCommitResult | null>(null)
@@ -100,6 +109,11 @@ export const useExtractionStore = defineStore('extraction', () => {
   function addPageProgress(entry: PageProgressEntry) {
     progressTotal.value = entry.total
     progressPages.value.push(entry)
+    retryingPage.value = null
+  }
+
+  function setRetryingPage(info: RetryingPageInfo) {
+    retryingPage.value = info
   }
 
   function setBatchResponse(response: ExtractionBatchResponse) {
@@ -113,6 +127,7 @@ export const useExtractionStore = defineStore('extraction', () => {
     currentPageIndex.value = 0
     progressPages.value = []
     progressTotal.value = 0
+    retryingPage.value = null
     state.value = 'ready'
     error.value = null
   }
@@ -150,6 +165,7 @@ export const useExtractionStore = defineStore('extraction', () => {
     providerUsed.value = null
     progressPages.value = []
     progressTotal.value = 0
+    retryingPage.value = null
     commitResult.value = null
   }
 
@@ -172,11 +188,13 @@ export const useExtractionStore = defineStore('extraction', () => {
     commitResult,
     progressPages,
     progressTotal,
+    retryingPage,
     loadProviders,
     setProvider,
     setFile,
     setBatchResponse,
     addPageProgress,
+    setRetryingPage,
     goToPage,
     updateField,
     setCommitResult,

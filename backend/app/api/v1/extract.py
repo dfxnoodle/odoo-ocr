@@ -1,3 +1,4 @@
+import asyncio
 import json
 import mimetypes
 from typing import Annotated
@@ -76,10 +77,44 @@ async def extract_document(
     async def event_stream():
         extraction_responses: list[ExtractionResponse] = []
 
+        # Wire up retry notifications if the extractor supports them.
+        retry_queue: asyncio.Queue[dict] = asyncio.Queue()
+        if hasattr(extractor, "retry_notification_queue"):
+            extractor.retry_notification_queue = retry_queue
+
+        gen = extractor.extract_pages_stream(contents, filename, mime)
         try:
-            async for page_num, total_pages, extraction in extractor.extract_pages_stream(
-                contents, filename, mime
-            ):
+            while True:
+                # Kick off the next page as a background task so we can emit
+                # retry SSE events *while* it is blocked inside back-off sleeps.
+                page_task: asyncio.Task = asyncio.create_task(gen.__anext__())  # type: ignore[arg-type]
+
+                while not page_task.done():
+                    await asyncio.sleep(0.2)
+                    while not retry_queue.empty():
+                        info = retry_queue.get_nowait()
+                        yield _sse("page_retrying", {
+                            "label": info.get("label", ""),
+                            "attempt": info.get("attempt", 1),
+                        })
+
+                # Final drain after the page task finished
+                while not retry_queue.empty():
+                    info = retry_queue.get_nowait()
+                    yield _sse("page_retrying", {
+                        "label": info.get("label", ""),
+                        "attempt": info.get("attempt", 1),
+                    })
+
+                try:
+                    page_num, total_pages, extraction = page_task.result()
+                except StopAsyncIteration:
+                    break
+                except ExtractionError as exc:
+                    log.error("Extraction failed mid-stream", error=str(exc))
+                    yield _sse("error", {"detail": str(exc)})
+                    return
+
                 warnings: list[str] = []
                 if extraction.container_number is None:
                     warnings.append("Container number could not be extracted.")
@@ -95,17 +130,15 @@ async def extract_document(
                 )
                 extraction_responses.append(resp)
 
-                # Emit a lightweight progress event (no full extraction data yet)
                 yield _sse("page_done", {
                     "page": page_num,
                     "total": total_pages,
                     "container_number": extraction.container_number,
                 })
 
-        except ExtractionError as exc:
-            log.error("Extraction failed mid-stream", error=str(exc))
-            yield _sse("error", {"detail": str(exc)})
-            return
+        finally:
+            if hasattr(extractor, "retry_notification_queue"):
+                extractor.retry_notification_queue = None
 
         # Emit the complete batch as the final event
         batch = ExtractionBatchResponse(

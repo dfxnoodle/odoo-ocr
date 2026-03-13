@@ -10,11 +10,16 @@ Set GOOGLE_API_KEY in your .env for the standard API-key path.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
 import structlog
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception,
+    stop_after_attempt,
+)
 
 from app.core.config import get_settings
 from app.schemas.extraction import (
@@ -28,6 +33,17 @@ _PDF_DPI = 300  # DPI for rasterising PDF pages; 300 gives good OCR quality
 from app.services.extractors.base import BaseExtractor, ExtractionError
 
 logger = structlog.get_logger(__name__)
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Return True only for 429 / RESOURCE_EXHAUSTED errors that warrant a retry."""
+    for candidate in (exc, getattr(exc, "__cause__", None)):
+        if candidate is not None and (
+            "429" in str(candidate) or "RESOURCE_EXHAUSTED" in str(candidate)
+        ):
+            return True
+    return False
+
 
 _EXTRACTION_PROMPT = """
 You are an expert document parser for Equipment Interchange Receipts (EIR) issued by container
@@ -85,16 +101,32 @@ Return ONLY a valid JSON object — no extra text, no markdown fences.
 """.strip()
 
 
-def _build_client():
-    """
-    Return a configured google-genai Client.
+def _resolve_credentials(settings) -> list[dict]:
+    """Return ordered credentials to rotate across on 429 errors.
+
+    Each entry is one of:
+      {"type": "project",  "value": "<gcp-project-id>"}   — Vertex AI + ADC
+      {"type": "api_key",  "value": "<google-ai-key>"}    — Google AI API
 
     Priority:
-      1. GOOGLE_CLOUD_PROJECT set  →  Vertex AI endpoint (ADC / Workload Identity).
-         Vertex AI models such as gemini-3.x-*-preview are only served here.
-      2. GOOGLE_API_KEY only       →  Google AI API endpoint.
-         Suitable for stable public models; has geographic restrictions.
+      1. GOOGLE_CLOUD_PROJECTS  — explicit Vertex AI project rotation list
+      2. GOOGLE_AI_API_KEYS     — explicit API-key rotation list
+      3. GOOGLE_CLOUD_PROJECT   — single Vertex AI project (no rotation)
+      4. GOOGLE_API_KEY         — single API key (no rotation)
     """
+    if settings.google_cloud_projects:
+        return [{"type": "project", "value": p} for p in settings.google_cloud_projects]
+    if settings.google_ai_api_keys:
+        return [{"type": "api_key", "value": k} for k in settings.google_ai_api_keys]
+    if settings.google_cloud_project:
+        return [{"type": "project", "value": settings.google_cloud_project}]
+    if settings.google_api_key:
+        return [{"type": "api_key", "value": settings.google_api_key}]
+    return []
+
+
+def _build_client(credential: dict):
+    """Return a configured google-genai Client for the given credential entry."""
     try:
         from google import genai
     except ImportError as exc:
@@ -106,27 +138,25 @@ def _build_client():
 
     settings = get_settings()
 
-    if settings.google_cloud_project:
+    if credential["type"] == "project":
         return genai.Client(
             vertexai=True,
-            project=settings.google_cloud_project,
+            project=credential["value"],
             location=settings.google_cloud_location or "global",
         )
 
-    if settings.google_api_key:
-        return genai.Client(api_key=settings.google_api_key)
-
-    raise ExtractionError(
-        "vertex_gemini",
-        "No Gemini credentials found. Set GOOGLE_CLOUD_PROJECT (Vertex AI / ADC) "
-        "or GOOGLE_API_KEY (Google AI API) in your .env.",
-    )
+    return genai.Client(api_key=credential["value"])
 
 
 class VertexGeminiExtractor(BaseExtractor):
     """Sends the document as an inline image/PNG to Gemini and parses the JSON response."""
 
     provider_name = "vertex_gemini"
+
+    def __init__(self) -> None:
+        # Set by the caller (e.g. the SSE endpoint) to receive retry notifications.
+        # Each entry: {"label": str, "attempt": int}
+        self.retry_notification_queue: asyncio.Queue[dict] | None = None
 
     async def extract(self, file_bytes: bytes, filename: str, mime_type: str) -> EIRExtraction:
         """Extract from a single image (or single-page PDF fallback)."""
@@ -170,43 +200,116 @@ class VertexGeminiExtractor(BaseExtractor):
             extraction = await self._extract_image(img_bytes, page_label)
             yield i + 1, total, extraction
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        reraise=True,
-    )
     async def _extract_image(self, img_bytes: bytes, label: str) -> EIRExtraction:
-        """Send a single PNG image to Gemini and return the parsed extraction."""
+        """Send a single PNG image to Gemini and return the parsed extraction.
+
+        With a single project: retries up to 6 times with exponential back-off.
+        With multiple projects (GOOGLE_CLOUD_PROJECTS): cycles through projects on
+        each 429 with *no* wait; back-off is only applied after a full round of
+        projects has been exhausted.  This maximises throughput when one project
+        is temporarily throttled while another still has quota.
+        """
+        import random as _random
+
         from google.genai import types
 
         settings = get_settings()
-        log = logger.bind(provider=self.provider_name, label=label)
-        log.info("Sending image to Gemini")
-
-        client = _build_client()
-        image_part = types.Part.from_bytes(data=img_bytes, mime_type="image/png")
-
-        try:
-            response = await client.aio.models.generate_content(
-                model=settings.vertex_model,
-                contents=[image_part, _EXTRACTION_PROMPT],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    max_output_tokens=4096,
-                ),
+        creds = _resolve_credentials(settings)
+        if not creds:
+            raise ExtractionError(
+                self.provider_name,
+                "No Gemini credentials found. Set GOOGLE_CLOUD_PROJECT / "
+                "GOOGLE_CLOUD_PROJECTS (Vertex AI) or GOOGLE_API_KEY / "
+                "GOOGLE_AI_API_KEYS (Google AI API) in your .env.",
             )
-        except Exception as exc:
-            log.error("Gemini API call failed", error=str(exc))
-            raise ExtractionError(self.provider_name, f"API call failed: {exc}", cause=exc) from exc
+        n = len(creds)
+        max_attempts = max(n * 3, 6)
 
-        raw_text = response.text.strip()
-        log.debug("Raw Gemini response received", length=len(raw_text))
+        log = logger.bind(provider=self.provider_name, label=label)
 
-        parsed = _parse_json_response(raw_text, self.provider_name)
-        extraction = _map_to_schema(parsed)
-        extraction.provider_raw = {"raw_text": raw_text}
-        log.info("Page extraction complete", confidence=extraction.extraction_confidence)
-        return extraction
+        def _wait(retry_state) -> float:
+            attempt = retry_state.attempt_number
+            if n > 1 and attempt % n != 0:
+                # Still have untried credentials in this round — switch immediately.
+                return 0.0
+            # All credentials tried once; exponential back-off before the next round.
+            round_num = (attempt // n) if n > 0 else attempt
+            return min(5.0 * (2 ** (round_num - 1)), 60.0) + _random.uniform(0, 5)
+
+        def _before_sleep(retry_state) -> None:
+            attempt = retry_state.attempt_number
+            switching = n > 1 and attempt % n != 0
+            next_cred = creds[attempt % n]
+            next_label = (
+                next_cred["value"] if next_cred["type"] == "project"
+                else f"api_key[...{next_cred['value'][-6:]}]"
+            )
+            if switching:
+                log.warning(
+                    "Rate limit hit — switching credential",
+                    attempt=attempt,
+                    next=next_label,
+                )
+            else:
+                log.warning(
+                    "Rate limit hit on all credentials — backing off",
+                    attempt=attempt,
+                )
+            queue = self.retry_notification_queue
+            if queue is not None:
+                try:
+                    queue.put_nowait({
+                        "label": label,
+                        "attempt": attempt,
+                        "switching_project": switching,
+                        "next_project": next_label,
+                    })
+                except asyncio.QueueFull:
+                    pass
+
+        async for attempt_ctx in AsyncRetrying(
+            retry=retry_if_exception(_is_rate_limit_error),
+            stop=stop_after_attempt(max_attempts),
+            wait=_wait,
+            before_sleep=_before_sleep,
+            reraise=True,
+        ):
+            with attempt_ctx:
+                attempt_num = attempt_ctx.retry_state.attempt_number
+                cred = creds[(attempt_num - 1) % n]
+                cred_label = (
+                    cred["value"] if cred["type"] == "project"
+                    else f"api_key[...{cred['value'][-6:]}]"
+                )
+                log.info("Sending image to Gemini", credential=cred_label)
+                client = _build_client(credential=cred)
+                image_part = types.Part.from_bytes(data=img_bytes, mime_type="image/png")
+
+                try:
+                    response = await client.aio.models.generate_content(
+                        model=settings.vertex_model,
+                        contents=[image_part, _EXTRACTION_PROMPT],
+                        config=types.GenerateContentConfig(
+                            temperature=0.0,
+                            max_output_tokens=4096,
+                        ),
+                    )
+                except Exception as exc:
+                    log.error("Gemini API call failed", error=str(exc))
+                    raise ExtractionError(
+                        self.provider_name, f"API call failed: {exc}", cause=exc
+                    ) from exc
+
+                raw_text = response.text.strip()
+                log.debug("Raw Gemini response received", length=len(raw_text))
+
+                parsed = _parse_json_response(raw_text, self.provider_name)
+                extraction = _map_to_schema(parsed)
+                extraction.provider_raw = {"raw_text": raw_text}
+                log.info("Page extraction complete", confidence=extraction.extraction_confidence)
+
+        # AsyncRetrying guarantees a result or reraises; this satisfies type-checkers.
+        return extraction  # type: ignore[return-value]
 
 
 def _pdf_pages_to_png(pdf_bytes: bytes) -> list[bytes]:

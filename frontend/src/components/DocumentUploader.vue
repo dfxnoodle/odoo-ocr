@@ -92,10 +92,28 @@
               <span class="progress-list__page">Page {{ p.page }}</span>
               <span class="progress-list__cntr">{{ p.container_number ?? 'unknown container' }}</span>
             </li>
-            <li v-for="n in remainingPages" :key="'r' + n" class="progress-list__item progress-list__item--pending">
-              <span class="progress-list__icon progress-list__icon--spin">⟳</span>
+            <li
+              v-for="(n, idx) in remainingPages"
+              :key="'r' + n"
+              class="progress-list__item"
+              :class="idx === 0 && store.retryingPage
+                ? 'progress-list__item--retrying'
+                : 'progress-list__item--pending'"
+            >
+              <span
+                class="progress-list__icon"
+                :class="idx === 0 && store.retryingPage ? 'progress-list__icon--pulse' : 'progress-list__icon--spin'"
+              >{{ idx === 0 && store.retryingPage ? '⚠' : '⟳' }}</span>
               <span class="progress-list__page">Page {{ store.progressPages.length + n }}</span>
-              <span class="progress-list__cntr">processing…</span>
+              <span v-if="idx === 0 && store.retryingPage" class="progress-list__cntr progress-list__cntr--retry">
+                <template v-if="store.retryingPage.switchingProject">
+                  Rate limit — switching API project…
+                </template>
+                <template v-else>
+                  Rate limit — waiting to retry (attempt {{ store.retryingPage.attempt }})…
+                </template>
+              </span>
+              <span v-else class="progress-list__cntr">processing…</span>
             </li>
           </ul>
           <p v-else class="progress-block__init">Preparing pages…</p>
@@ -448,6 +466,12 @@ onMounted(() => {
   color: var(--color-text-subtle);
 }
 
+.progress-list__item--retrying {
+  background: #fffbe6;
+  border-color: #ffe58f;
+  color: #874d00;
+}
+
 .progress-list__icon {
   font-size: 13px;
   width: 16px;
@@ -458,6 +482,17 @@ onMounted(() => {
 .progress-list__icon--spin {
   display: inline-block;
   animation: spin 1.2s linear infinite;
+}
+
+.progress-list__icon--pulse {
+  display: inline-block;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.progress-list__cntr--retry {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .progress-list__page {
@@ -476,5 +511,10 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
 }
 </style>

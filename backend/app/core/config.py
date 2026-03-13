@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     google_cloud_location: str = "global"        # Region or "global" for API key path
     vertex_model: str = "gemini-2.0-flash"       # Model name passed to generate_content
 
+    # Optional list of Vertex AI project IDs to rotate across on 429 errors.
+    # When set, overrides google_cloud_project for multi-project quota distribution.
+    # Format (JSON array in .env): GOOGLE_CLOUD_PROJECTS=["proj-a","proj-b"]
+    google_cloud_projects: list[str] = Field(default_factory=list)
+
+    # Optional list of Google AI API keys to rotate across on 429 errors.
+    # Use this (instead of GOOGLE_CLOUD_PROJECTS) when authenticating via API key
+    # rather than Vertex AI ADC. Each key has its own independent rate-limit quota.
+    # Format (JSON array in .env): GOOGLE_AI_API_KEYS=["key-1","key-2"]
+    google_ai_api_keys: list[str] = Field(default_factory=list)
+
     # PaddleOCR-VL (local subprocess bridge)
     # Must point to a Python 3.9–3.13 interpreter with paddlepaddle + paddleocr[doc-parser]
     paddle_vl_python: str = "python3"
