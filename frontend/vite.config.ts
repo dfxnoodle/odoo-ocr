@@ -11,6 +11,15 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    host: true,
+    // Allow Cloudflared quick tunnel hostnames to reach the dev server.
+    allowedHosts: ['.trycloudflare.com'],
+    strictPort: true,
+    // Critical for Cloudflare Tunnels to handle Hot Module Replacement
+    hmr: {
+      protocol: 'wss',
+      clientPort: 443,
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
@@ -21,18 +30,15 @@ export default defineConfig({
   build: {
     outDir: '../backend/static',
     emptyOutDir: true,
-    rolldownOptions: {
+    // Use rollupOptions (Standard even in Vite 8/Rolldown transitions)
+    rollupOptions: {
       output: {
-        // Object form was removed in Vite 8 (Rolldown). Use function form.
         manualChunks(id: string) {
-          if (id.includes('/node_modules/pdfjs-dist/')) return 'pdf'
-          if (
-            id.includes('/node_modules/vue/') ||
-            id.includes('/node_modules/vue-router/') ||
-            id.includes('/node_modules/pinia/') ||
-            id.includes('/node_modules/@vue/')
-          )
+          if (id.includes('pdfjs-dist')) return 'pdf'
+          if (id.includes('node_modules') && 
+             (id.includes('vue') || id.includes('pinia'))) {
             return 'vendor'
+          }
         },
       },
     },
