@@ -1,0 +1,42 @@
+# ── Secrets – NEVER commit real credentials ──────────────────────────────────
+.env
+*.pem
+*.key
+*-sa.json
+secrets/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+
+# ── Vite / Build output (served by FastAPI in production) ────────────────────
+backend/static/
+
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+*.log
+
+# ── TypeScript build cache ────────────────────────────────────────────────────
+frontend/tsconfig.tsbuildinfo

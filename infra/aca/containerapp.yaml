@@ -1,0 +1,80 @@
+# Azure Container Apps deployment manifest
+# Deploy with:
+#   az containerapp create \
+#     --resource-group <rg> \
+#     --environment <env-name> \
+#     --yaml infra/aca/containerapp.yaml
+
+location: eastus
+name: eir-ocr-platform
+type: Microsoft.App/containerApps
+properties:
+  managedEnvironmentId: /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RG>/providers/Microsoft.App/managedEnvironments/<ENV_NAME>
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8000
+      transport: http
+      allowInsecure: false
+    secrets:
+      - name: vertex-project-id
+        value: "<VERTEX_PROJECT_ID>"
+      - name: odoo-url
+        value: "<ODOO_URL>"
+      - name: odoo-db
+        value: "<ODOO_DB>"
+      - name: odoo-username
+        value: "<ODOO_USERNAME>"
+      - name: odoo-password
+        value: "<ODOO_API_KEY>"
+      - name: gcp-sa-json
+        value: "<BASE64_ENCODED_SERVICE_ACCOUNT_JSON>"
+  template:
+    containers:
+      - name: eir-ocr-platform
+        image: <ACR_NAME>.azurecr.io/eir-ocr-platform:latest
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: EXTRACTION_PROVIDER
+            value: vertex
+          - name: LOG_LEVEL
+            value: INFO
+          - name: VERTEX_PROJECT_ID
+            secretRef: vertex-project-id
+          - name: VERTEX_LOCATION
+            value: us-central1
+          - name: VERTEX_MODEL
+            value: gemini-2.0-flash-001
+          - name: ODOO_URL
+            secretRef: odoo-url
+          - name: ODOO_DB
+            secretRef: odoo-db
+          - name: ODOO_USERNAME
+            secretRef: odoo-username
+          - name: ODOO_PASSWORD
+            secretRef: odoo-password
+          - name: CORS_ORIGINS
+            value: '["https://<YOUR_CUSTOM_DOMAIN>"]'
+        probes:
+          - type: liveness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          - type: readiness
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+    scale:
+      minReplicas: 0
+      maxReplicas: 5
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "10"
