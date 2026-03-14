@@ -30,15 +30,13 @@ export default defineConfig({
   build: {
     outDir: '../backend/static',
     emptyOutDir: true,
-    // Use rollupOptions (Standard even in Vite 8/Rolldown transitions)
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id: string) {
-          if (id.includes('pdfjs-dist')) return 'pdf'
-          if (id.includes('node_modules') && 
-             (id.includes('vue') || id.includes('pinia'))) {
-            return 'vendor'
-          }
+        codeSplitting: {
+          groups: [
+            { name: 'pdf', test: /pdfjs-dist/ },
+            { name: 'vendor', test: /node_modules\/(vue|pinia)/ },
+          ],
         },
       },
     },
