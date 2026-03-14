@@ -30,8 +30,8 @@ export default defineConfig({
   build: {
     outDir: '../backend/static',
     emptyOutDir: true,
-    // Use rollupOptions (Standard even in Vite 8/Rolldown transitions)
-    rollupOptions: {
+    // Vite 8 standardizes on rolldownOptions; keep chunking behavior unchanged.
+    rolldownOptions: {
       output: {
         manualChunks(id: string) {
           if (id.includes('pdfjs-dist')) return 'pdf'
