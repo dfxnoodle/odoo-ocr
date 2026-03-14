@@ -34,6 +34,7 @@ export function useExtract() {
     const reader = response.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let receivedResult = false
 
     try {
       while (true) {
@@ -69,6 +70,7 @@ export function useExtract() {
               switchingProject: (event.switching_project as boolean) ?? false,
             })
           } else if (event.type === 'result') {
+            receivedResult = true
             store.setBatchResponse(event.data as ExtractionBatchResponse)
           } else if (event.type === 'error') {
             const msg = (event.detail as string) ?? 'Extraction failed'
@@ -81,7 +83,7 @@ export function useExtract() {
       reader.releaseLock()
     }
 
-    if (store.state !== 'ready') {
+    if (!receivedResult) {
       // Stream ended without a result event
       store.setError('Extraction stream ended unexpectedly.')
       throw new Error('Extraction stream ended unexpectedly.')
